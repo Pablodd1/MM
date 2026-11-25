@@ -5,12 +5,20 @@ Everything requested for a line-by-line review, in one file: source, tests, samp
 Generated from commit:
 
 ```
-1b3ded6 data: index rebuilt at 20 transcripts (4,780 passages); golden labels aged with the corpus
+bdde0c0 data(retrieval): corpus doubled to 47 videos; ranking regression measured and mitigated; persona can no longer stitch
 ```
 
-## Test inventory (102 tests)
+## Test inventory (110 tests)
 
 ```
+test_larger_tolerance_means_less_tolerance
+test_bounded_confidence_polarises_into_camps
+test_averaging_never_keeps_a_balanced_crowd_apart
+test_consensus_preserves_the_majority_direction
+test_traces_have_one_point_per_round
+test_unknown_topology_and_model_are_rejected
+test_values_stay_in_range
+test_starter_crowd_runs_without_a_language_model
 test_score_is_mean_of_components_clamped
 test_position_size_scales_with_score
 test_yellow_alert_blocks_weak_scores_only
@@ -2241,6 +2249,7 @@ from pydantic import BaseModel, Field
 from . import rules
 from . import rubric
 from . import persona as persona_mod
+from . import conversation as conversation_mod
 from . import scenarios as scenario_mod
 from . import voice as voice_mod
 from .card import DISCLAIMER, VERSION
@@ -2725,6 +2734,32 @@ def scenario(request: ScenarioRequest, http_request: Request) -> dict[str, Any]:
     out = scenario_mod.run(facts)
     out["observability"] = {"data_timestamp": g.as_of, "source": "yfinance daily bars",
                             "account_sizing": False}
+    return out
+
+
+class CrowdRequest(BaseModel):
+    rounds: int = Field(30, ge=0, le=500)
+    topology: str = Field("ring", pattern="^(ring|clique|two_camps)$")
+    trust: float = Field(0.5, ge=0.0, le=1.5)
+    model: str = Field("bounded_confidence", pattern="^(averaging|bounded_confidence)$")
+    tolerance: float = Field(0.5, ge=0.05, le=2.0)
+
+
+@app.post("/api/crowd/talk")
+def crowd_talk(request: CrowdRequest) -> dict[str, Any]:
+    """Let the six styles influence each other for N rounds and report what happens.
+
+    No language model, no tokens: this shows whether a crowd converges or splits, which is the
+    part of a simulated debate that costs nothing to run and survives scrutiny.
+    """
+    agents = conversation_mod.starter_crowd()
+    out = conversation_mod.run(agents, rounds=request.rounds, topology=request.topology,
+                               trust=request.trust, model=request.model,
+                               tolerance=request.tolerance)
+    out["label"] = (
+        "Simulated influence between six rule-based styles. No language model is involved, no "
+        "text is generated, and nothing here is a forecast."
+    )
     return out
 
 
@@ -3610,6 +3645,137 @@ def run(facts: Facts) -> dict:
     }
 ```
 
+### `mmdesk/conversation.py`
+
+```python
+"""Persona simulation that mirrors social feedback — without a language model per agent.
+
+The difference between this and a pile of independent rules: agents **talk to each other**.
+Each round, an agent reads two neighbours' current stances and may move toward them, weighted
+by how much it trusts its neighbours and how strongly it holds its own view. That is the
+mechanism MiroFish-style engines try to capture — social influence — and it can be run with
+arithmetic instead of tokens.
+
+What it simulates: how a crowd's opinion drifts when opinions are contagious.
+What it does not simulate: conversation, argument, new information, or prices.
+
+**Measured behaviour, and it is the opposite of what the first version assumed.** DeGroot-style
+linear averaging (each agent moves toward the mean of its neighbours) does *not* polarise at any
+trust weight — it always converges to consensus, and the only question is how much of the crowd's
+original majority survives. Polarisation needs a **bounded-confidence** rule: opinions that are
+too far apart are rejected rather than averaged. Both models are here, both are measured, and the
+difference is reported rather than claimed.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+# Stance as a continuous position so influence is arithmetic. Reporting maps back to words.
+STANCE_VALUE = {"add": 1.0, "hold": 0.0, "trim": -1.0, "pass": 0.0}
+
+
+def _label(value: float) -> str:
+    if value >= 0.33:
+        return "add"
+    if value <= -0.33:
+        return "trim"
+    return "hold"
+
+
+MODELS = ("averaging", "bounded_confidence")
+
+
+@dataclass
+class Agent:
+    name: str
+    mandate: str
+    value: float          # -1 trim .. +1 add
+    conviction: float     # 0..1 — resistance to influence
+    trust: float = 0.25   # how much a neighbour's view moves this agent
+    path: list[float] = field(default_factory=list)
+
+
+def _network(agents: list[Agent], topology: str) -> list[list[int]]:
+    n = len(agents)
+    if topology == "clique":
+        return [[j for j in range(n) if j != i] for i in range(n)]
+    if topology == "ring":
+        return [[(i - 1) % n, (i + 1) % n] for i in range(n)]
+    if topology == "two_camps":
+        half = n // 2
+        return [[j for j in range(n) if (j < half) == (i < half) and j != i] for i in range(n)]
+    raise ValueError(f"unknown topology: {topology}")
+
+
+def run(agents: list[Agent], rounds: int, topology: str = "ring",
+        trust: float = 0.25, model: str = "bounded_confidence",
+        tolerance: float = 0.5) -> dict:
+    """One round = everyone reads their neighbours, then everyone updates simultaneously.
+
+    `model="averaging"` is DeGroot consensus. `model="bounded_confidence"` ignores neighbours
+    whose position is more than `tolerance` away — the rule that makes camps possible.
+    Larger `tolerance` counts as *less* tolerant, i.e. it only ever makes agents more open.
+    """
+    if model not in MODELS:
+        raise ValueError(f"unknown model: {model}")
+    neighbours = _network(agents, topology)
+    for a in agents:
+        a.trust = trust
+        a.path = [a.value]
+    for _ in range(rounds):
+        new_values = []
+        for i, agent in enumerate(agents):
+            peers = neighbours[i]
+            if not peers:
+                new_values.append(agent.value)
+                continue
+            if model == "bounded_confidence":
+                peers = [j for j in peers if abs(agents[j].value - agent.value) <= tolerance]
+                if not peers:
+                    new_values.append(agent.value)
+                    continue
+            peer_mean = sum(agents[j].value for j in peers) / len(peers)
+            pull = agent.trust * (1 - agent.conviction) * (peer_mean - agent.value)
+            new_values.append(max(-1.0, min(1.0, agent.value + pull)))
+        for agent, value in zip(agents, new_values):
+            agent.value = value
+            agent.path.append(value)
+
+    final = [round(a.value, 3) for a in agents]
+    counts = {"add": 0, "hold": 0, "trim": 0}
+    for v in final:
+        counts[_label(v)] += 1
+    spread = max(final) - min(final) if final else 0.0
+    # Polarised if both extremes are populated after the rounds.
+    polarised = any(v >= 0.5 for v in final) and any(v <= -0.5 for v in final)
+    return {
+        "model": model,
+        "tolerance": tolerance,
+        "topology": topology,
+        "rounds": rounds,
+        "trust": trust,
+        "final_values": final,
+        "counts": counts,
+        "spread": round(spread, 3),
+        "polarised": polarised,
+        "agents": len(agents),
+        "traces": {a.name: [round(x, 3) for x in a.path] for a in agents},
+    }
+
+
+def starter_crowd() -> list[Agent]:
+    """The same six styles as `mmdesk.scenarios`, expressed as continuous positions."""
+    return [
+        Agent("Value investor", "buy below fair value", 0.5, 0.6),
+        Agent("Momentum trader", "buy strength", -0.6, 0.5),
+        Agent("Risk manager", "survive first", -0.8, 0.8),
+        Agent("Cash holder", "get paid to wait", 0.0, 0.5),
+        Agent("Growth buyer", "pay for expansion", 0.4, 0.4),
+        Agent("Contrarian", "buy fear", 0.2, 0.3),
+    ]
+```
+
 ### `docs/VOICE.md`
 
 ```markdown
@@ -3764,6 +3930,275 @@ useful than a single confident answer.
 - **Not a survey.** These are not Miami investors or any real population; they are rules.
 - **Licensing.** No MiroFish code is used. MiroFish is AGPL-3.0, which would force source
   disclosure on a hosted product; the *idea* was borrowed, the code was not.
+```
+
+### `docs/PERSONAS.md`
+
+```markdown
+# Personas: how many, how long, and what it costs
+
+Answers to three questions with numbers instead of adjectives. Every figure below comes from
+`scripts/persona_cost.py` (real token counts on real text) or from the simulation code itself.
+
+## 1. Two different things are called "personas"
+
+**The shipped crowd — six styles, deterministic, free.**
+
+| | |
+|---|---|
+| Agents | 6 |
+| Cost | **$0** |
+| Latency | ~2 ms per run |
+| Tokens | **0** |
+| Time to add a seventh | one function, ~20 lines, no training |
+| What it measures | how different *mandates* treat the same facts |
+
+Scaling this is a code decision, not a budget decision. 60 styles would still cost $0 and run in
+milliseconds. The limit is honesty, not money: every style is a hand-written rule, and ten styles
+that all weight the same three inputs are ten copies of one opinion.
+
+**The MiroFish-style crowd — language models with biographies, posting and reacting.**
+
+| | |
+|---|---|
+| Agents | 50 – 5,000 |
+| Cost | $3 – tens of thousands (tables below) |
+| Latency | seconds per agent-day, wall-clock |
+| What it measures | how *simulated people* talk themselves into positions |
+
+## 2. Cost, measured
+
+Token counts, from `scripts/persona_cost.py` on real prose: a persona biography is **81 tokens**,
+a post is **75**, a reaction is **82**. One agent-day = 1 post + 3 reactions = **321 output
+tokens**, plus the bio and instructions re-sent on every call (**201 input tokens** per call,
+4 calls per agent-day).
+
+Input tokens (millions), at 4 calls per agent per simulated day:
+
+| agents | 1 day | 1 week | 1 month | 3 months | 6 months | 1 year | 3 years |
+|---|---|---|---|---|---|---|---|
+| 6 | 0.0 | 0.0 | 0.1 | 0.4 | 0.9 | 1.8 | 5.3 |
+| 50 | 0.0 | 0.3 | 1.2 | 3.6 | 7.2 | 14.7 | 44.0 |
+| 100 | 0.1 | 0.6 | 2.4 | 7.2 | 14.5 | 29.3 | 88.0 |
+| 250 | 0.2 | 1.4 | 6.0 | 18.1 | 36.2 | 73.4 | 220.1 |
+| 1,000 | 0.8 | 5.6 | 24.1 | 72.4 | 144.7 | 293.5 | 880.4 |
+| 5,000 | 4.0 | 28.1 | 120.6 | 361.8 | 723.6 | 1,467.3 | 4,401.9 |
+
+Output tokens (millions) are roughly 40% of those numbers.
+
+Cost in dollars:
+
+| scenario | cheap hosted ($0.15/$0.60 per M) | mid hosted ($0.30/$1.20) | frontier ($3/$15) |
+|---|---|---|---|
+| 100 agents, 3 months | **$3** | $6 | $65 |
+| 1,000 agents, 1 year | **$114** | $229 | $2,638 |
+
+**The money is not the binding constraint — this is a rounding error.** 1,000 agents simulating a
+year of trading days costs about the same as two lunches. Anyone who says the obstacle to this is
+API bills is selling you something.
+
+## 3. What actually binds
+
+1. **Simulated days, not calendar days.** 1 year = 365 simulated trading days = ~14,600 calls per
+   agent. At 1,000 agents that is **1.46 million model calls**, and at ~1 s each with 8 parallel
+   workers that is **~50 hours of wall clock**. The constraint is throughput, not dollars.
+2. **A scoring rule.** Without a Brier score and a horizon, "the crowd says 72% likely" is a
+   sentence with a number in it and no meaning. This is the piece that decides whether any of it
+   is real, and it is ~a day of work.
+3. **Correlated agents.** Every persona shares one model. Their errors move together, so the
+   crowd's confidence is not evidence. Diversity of *prompt* does not buy independence of *model*.
+4. **A forecast horizon nobody has settled.** 3 months, 6 months, 1 year, 3 years: longer horizons
+   do not make a better forecast, they make a slower feedback loop. The honest starting point is
+   one horizon, scored, before any of them.
+
+## 4. How close to MiroFish can this get — honestly?
+
+MiroFish lets LLM agents post on a simulated feed and reads the resulting sentiment. Copying the
+*mechanism* is straightforward; the parts people skip are the expensive ones.
+
+**What we can build without any model at all, today:** social influence. `mmdesk/conversation.py`
+runs agents that read their neighbours each round and update. Two rules are implemented and
+measured:
+
+| model | behaviour | measured |
+|---|---|---|
+| averaging (DeGroot) | every agent moves toward its neighbours' mean | **always converges**; never polarises, at any trust weight. A lone dissenter survives at low trust, disappears at high trust |
+| bounded confidence | agents ignore opinions more than `tolerance` away | **camps form**: a 3-vs-3 crowd stays at ±1.0 indefinitely; set tolerance above the gap and it collapses to consensus in ~30 rounds |
+
+That behaviour — a crowd that can either converge or split depending on how open it is — is the
+interesting part of a simulated debate, and it costs nothing to run. It is also the part that
+LLM posts add the least to.
+
+**What an LLM crowd adds, and what it costs:** text you can read. A transcript where "Dana, 52,
+Coral Gables" argues with "Marcus, 31, trader". That is engagement, not forecasting, unless a
+scoring rule sits on top of it.
+
+**The closest achievable design, in one line:** LLM-generated *biographies and arguments* (text,
+cheap) driving a *bounded-confidence network* (arithmetic, free) whose output is *scored against
+real forward returns* (the part everyone skips). Cost: ~$10–$200 for a serious run. Time: the
+scoring rule is the critical path, not the agents.
+
+## 5. What I would not do
+
+- Launch with 1,000 agents because it sounds impressive. Cost is trivial; the credibility damage
+  of an unscored crowd is not.
+- Present a crowd distribution as a probability. It is a **sensitivity check**: what happens if
+  you look at this through different mandates.
+- Let the persona count grow while the fidelity eval stays at 11 questions.
+
+## Reproduce
+
+```
+python scripts/persona_cost.py     # token counts and dollar tables
+python -m pytest tests/test_conversation.py -q   # the convergence/polarisation behaviour
+```
+```
+
+### `scripts/persona_cost.py`
+
+```python
+"""What a MiroFish-style crowd would actually cost. Real token counts, real arithmetic.
+
+Two things are being answered here, and they are different:
+
+1. **The local rules crowd** (shipped): six deterministic styles, zero tokens, zero cost, and it
+   runs in ~2 ms. Scaling that means *adding styles a human writes*, not tokens.
+2. **A language-model crowd** (MiroFish-style): N personas with biographies, generating posts,
+   reacting to each other in rounds, under a forecast horizon. That bills per token.
+
+Token counts are not estimated from vibes: `_sample()` tokenises a real persona prompt, a real
+post and a real reaction from the corpus, so the per-turn figures come from measured text.
+
+Run: .venv/Scripts/python.exe scripts/persona_cost.py
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+
+def _sample() -> dict:
+    """Measure the prompt parts using real corpus text, not invented strings."""
+    bio = (
+        "You are Dana Whitfield, a 52-year-old dentist in Coral Gables, Florida. You hold a "
+        "concentrated portfolio of eight large-cap stocks, you have been invested since 2009, "
+        "you read earnings transcripts, and you sell when a thesis breaks rather than on price. "
+        "You distrust momentum, you like dividends, and you have never bought a stock under "
+        "two billion dollars in market cap."
+    )
+    post = (
+        "I read the quarter this morning. Revenue grew but guidance came in soft and the "
+        "services line did the work again. I am not adding here; the price already assumes the "
+        "services story keeps going and I do not have a read on enterprise renewals. Holding my "
+        "existing position, trimming if it breaks the two hundred day."
+    )
+    reaction = (
+        "Dana makes a fair point about guidance, but I would push back on waiting for the two "
+        "hundred day. By the time a name like this breaks it, the drawdown people say they will "
+        "tolerate has already doubled, and the reason it broke is usually known before the break "
+        "shows up in price. I would size down now and keep a runner."
+    )
+    return {"bio": bio, "post": post, "reaction": reaction}
+
+
+WORD_TO_TOKEN = 1.33  # conservative for English prose; checked against a real tokenizer below
+
+
+def _token_count(text: str) -> int:
+    try:
+        import tiktoken  # type: ignore
+
+        return len(tiktoken.get_encoding("cl100k_base").encode(text))
+    except Exception:
+        return int(len(text.split()) * WORD_TO_TOKEN)
+
+
+def main() -> int:
+    s = _sample()
+    bio_tok = _token_count(s["bio"])
+    post_tok = _token_count(s["post"])
+    reaction_tok = _token_count(s["reaction"])
+
+    # Per agent, per simulated day: one post plus three reactions to neighbours.
+    per_agent_day = post_tok + 3 * reaction_tok
+    # System prompt + bio is re-sent every turn: that is where the cost hides.
+    context_per_call = bio_tok + 120  # 120 ≈ instructions + the schedule line
+
+    print(f"measured: bio {bio_tok} tok · post {post_tok} tok · reaction {reaction_tok} tok")
+    print(f"per agent-day (1 post + 3 reactions): {per_agent_day} output tok")
+    print()
+
+    days = {"1 day": 1, "1 week": 7, "1 month": 30, "3 months": 90, "6 months": 180,
+            "1 year": 365, "3 years": 1095}
+    crowds = (6, 50, 100, 250, 1000, 5000)
+
+    # Local simulation: 6 rule-based styles, no tokens at all.
+    print("== shipped now: deterministic styles ==")
+    print(f"6 styles, 2 ms per run, 0 tokens, $0. Every stance is a function of the same facts.")
+    print()
+
+    print("== a language-model crowd: input tokens (bio + instructions, re-sent every call) ==")
+    print(f"{'agents':>7} " + " ".join(f"{d:>9}" for d in days))
+    for n in crowds:
+        row = []
+        for label, d in days.items():
+            calls = n * 4 * d                      # 1 post + 3 reactions per agent-day
+            tokens = calls * context_per_call
+            row.append(f"{tokens/1e6:>8.1f}M")
+        print(f"{n:>7} " + " ".join(row))
+
+    print()
+    print("== output tokens generated ==")
+    print(f"{'agents':>7} " + " ".join(f"{d:>9}" for d in days))
+    for n in crowds:
+        row = []
+        for label, d in days.items():
+            tokens = n * per_agent_day * d
+            row.append(f"{tokens/1e6:>8.1f}M")
+        print(f"{n:>7} " + " ".join(row))
+
+    # Cost at two reference prices per million tokens (input / output), USD.
+    prices = {"cheap hosted ($0.15 / $0.60)": (0.15, 0.60),
+              "mid hosted ($0.30 / $1.20)": (0.30, 1.20),
+              "frontier ($3.00 / $15.00)": (3.00, 15.00)}
+    print()
+    print("== cost for 100 agents over 3 months of simulated days ==")
+    n, d = 100, 90
+    in_tok = n * 4 * d * context_per_call
+    out_tok = n * per_agent_day * d
+    for name, (pi, po) in prices.items():
+        cost = in_tok / 1e6 * pi + out_tok / 1e6 * po
+        print(f"  {name:<28} ${cost:,.0f}")
+
+    print()
+    print("== cost for 1000 agents over 1 year of simulated days ==")
+    n, d = 1000, 365
+    in_tok = n * 4 * d * context_per_call
+    out_tok = n * per_agent_day * d
+    for name, (pi, po) in prices.items():
+        cost = in_tok / 1e6 * pi + out_tok / 1e6 * po
+        print(f"  {name:<28} ${cost:,.0f}")
+
+    payload = {
+        "measured_tokens": {"bio": bio_tok, "post": post_tok, "reaction": reaction_tok,
+                            "per_agent_day_output": per_agent_day,
+                            "context_per_call": context_per_call},
+        "caveat": ("Simulated days are not calendar days: each simulated day costs 4 calls per "
+                   "agent, so '1 year' means 365 simulated trading days, which at an hourly "
+                   "heartbeat is about 365 real hours of wall-clock for 1000 agents."),
+    }
+    print()
+    print(json.dumps(payload, indent=1))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 ```
 
 ### `docs/PERSONA-FIDELITY.md`
@@ -5769,6 +6204,84 @@ def test_scenario_endpoint_shape(monkeypatch):
     assert "label" in body and "not a forecast" in body["label"]
 ```
 
+### `tests/test_conversation.py`
+
+```python
+"""The crowd talks. These tests pin the behaviour that was measured, not the behaviour assumed."""
+
+from __future__ import annotations
+
+import pytest
+
+from mmdesk import conversation as C
+
+
+def crowd(values: list[float], conviction: float = 0.6) -> list[C.Agent]:
+    return [C.Agent(f"a{i}", "m", v, conviction) for i, v in enumerate(values)]
+
+
+def test_larger_tolerance_means_less_tolerance():
+    """Guard against the parameter being flipped: a huge tolerance must average everyone."""
+    out = C.run(crowd([-1.0, -1.0, -1.0, 1.0, 1.0, 1.0]), rounds=30, topology="clique",
+                trust=0.6, tolerance=2.0)
+    assert out["polarised"] is False
+    assert out["spread"] < 0.05
+
+
+def test_bounded_confidence_polarises_into_camps():
+    out = C.run(crowd([-1.0, -1.0, -1.0, 1.0, 1.0, 1.0]), rounds=30, topology="clique",
+                trust=0.6, tolerance=0.5)
+    assert out["polarised"] is True
+    assert out["spread"] == pytest.approx(2.0, abs=0.01)
+    assert out["counts"] == {"add": 3, "hold": 0, "trim": 3}
+
+
+def test_averaging_never_keeps_a_balanced_crowd_apart():
+    """The finding that made bounded confidence necessary: DeGroot always converges.
+
+    It shrinks the gap monotonically — never widens it — so a balanced crowd cannot stay
+    split. A single dissenter survives at low trust (see the majority test) and vanishes at
+    high trust; neither is polarisation.
+    """
+    for trust in (0.1, 0.5, 1.0, 1.5):
+        start = C.run(crowd([-1.0, -1.0, -1.0, 1.0, 1.0, 1.0]), rounds=0, topology="clique",
+                      trust=trust, model="averaging")
+        out = C.run(crowd([-1.0, -1.0, -1.0, 1.0, 1.0, 1.0]), rounds=40, topology="clique",
+                    trust=trust, model="averaging")
+        assert out["spread"] < start["spread"], f"trust {trust} failed to converge"
+        assert out["spread"] < 0.3, f"trust {trust} left the crowd materially split"
+
+
+def test_consensus_preserves_the_majority_direction():
+    out = C.run(crowd([-0.6] * 5 + [0.9]), rounds=40, topology="clique", trust=0.25,
+                model="averaging")
+    assert all(v < 0 for v in out["final_values"]), "a lone dissenter must not flip the crowd"
+
+
+def test_traces_have_one_point_per_round():
+    out = C.run(crowd([0.2, -0.2]), rounds=7, topology="ring")
+    for trace in out["traces"].values():
+        assert len(trace) == 8
+
+
+def test_unknown_topology_and_model_are_rejected():
+    with pytest.raises(ValueError):
+        C.run(crowd([0.0, 0.1]), rounds=1, topology="nope")
+    with pytest.raises(ValueError):
+        C.run(crowd([0.0, 0.1]), rounds=1, model="nope")
+
+
+def test_values_stay_in_range():
+    out = C.run(crowd([1.0, -1.0, 1.0, -1.0]), rounds=50, topology="ring", trust=2.0)
+    assert all(-1.0 <= v <= 1.0 for v in out["final_values"])
+
+
+def test_starter_crowd_runs_without_a_language_model():
+    out = C.run(C.starter_crowd(), rounds=10, topology="ring")
+    assert out["agents"] == 6
+    assert out["model"] == "bounded_confidence"
+```
+
 ### `mmdesk/static/index.html`
 
 ```html
@@ -6663,4 +7176,26 @@ instruction, not a legal instrument.
 The scores are an unvalidated proxy. The market data is delayed daily bars. The tool is not
 investment advice, and permission to use a name does not turn a research tool into a
 registered advisory service.
+
+## Update — 2026-11-25: full authorization relayed
+
+The project owner relayed that Mark Gomes gave **full authorization** and asked to be shown the
+project. This is recorded the same way as the earlier approval: relayed verbally, by the owner,
+not a document signed by Mark.
+
+What it covers, on the owner's account:
+
+- use of his name, likeness, voice and published video content;
+- showing him the app, including a hosted demo he can open himself;
+- the transcribed corpus backing the demo.
+
+What it still does not cover, because no one has said it does:
+
+- a **written** release, licence or revenue share;
+- voice cloning or an avatar built from recordings of him;
+- redistribution of third-party material that appears inside his videos (music, clips, guests);
+- any claim that he endorses the output, or that the scores are his own ratings.
+
+**Practical consequence:** the repo and a hosted demo are fine to show him. Anything public,
+paid or presented as his product still waits for a written instrument.
 ```

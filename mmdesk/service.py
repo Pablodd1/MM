@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 from . import rules
 from . import rubric
 from . import persona as persona_mod
+from . import conversation as conversation_mod
 from . import scenarios as scenario_mod
 from . import voice as voice_mod
 from .card import DISCLAIMER, VERSION
@@ -511,6 +512,32 @@ def scenario(request: ScenarioRequest, http_request: Request) -> dict[str, Any]:
     out = scenario_mod.run(facts)
     out["observability"] = {"data_timestamp": g.as_of, "source": "yfinance daily bars",
                             "account_sizing": False}
+    return out
+
+
+class CrowdRequest(BaseModel):
+    rounds: int = Field(30, ge=0, le=500)
+    topology: str = Field("ring", pattern="^(ring|clique|two_camps)$")
+    trust: float = Field(0.5, ge=0.0, le=1.5)
+    model: str = Field("bounded_confidence", pattern="^(averaging|bounded_confidence)$")
+    tolerance: float = Field(0.5, ge=0.05, le=2.0)
+
+
+@app.post("/api/crowd/talk")
+def crowd_talk(request: CrowdRequest) -> dict[str, Any]:
+    """Let the six styles influence each other for N rounds and report what happens.
+
+    No language model, no tokens: this shows whether a crowd converges or splits, which is the
+    part of a simulated debate that costs nothing to run and survives scrutiny.
+    """
+    agents = conversation_mod.starter_crowd()
+    out = conversation_mod.run(agents, rounds=request.rounds, topology=request.topology,
+                               trust=request.trust, model=request.model,
+                               tolerance=request.tolerance)
+    out["label"] = (
+        "Simulated influence between six rule-based styles. No language model is involved, no "
+        "text is generated, and nothing here is a forecast."
+    )
     return out
 
 

@@ -38,3 +38,25 @@ instruction, not a legal instrument.
 The scores are an unvalidated proxy. The market data is delayed daily bars. The tool is not
 investment advice, and permission to use a name does not turn a research tool into a
 registered advisory service.
+
+## Update — 2026-11-25: full authorization relayed
+
+The project owner relayed that Mark Gomes gave **full authorization** and asked to be shown the
+project. This is recorded the same way as the earlier approval: relayed verbally, by the owner,
+not a document signed by Mark.
+
+What it covers, on the owner's account:
+
+- use of his name, likeness, voice and published video content;
+- showing him the app, including a hosted demo he can open himself;
+- the transcribed corpus backing the demo.
+
+What it still does not cover, because no one has said it does:
+
+- a **written** release, licence or revenue share;
+- voice cloning or an avatar built from recordings of him;
+- redistribution of third-party material that appears inside his videos (music, clips, guests);
+- any claim that he endorses the output, or that the scores are his own ratings.
+
+**Practical consequence:** the repo and a hosted demo are fine to show him. Anything public,
+paid or presented as his product still waits for a written instrument.
