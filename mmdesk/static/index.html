@@ -176,7 +176,13 @@ function render(d){
   }
 
   if(d.grounding?.missing?.length) out.append(el('div','warn','Incomplete data: '+d.grounding.missing.join(', ')));
-  if(d.narrative?.generated_by) out.append(el('p','note','Narrative: '+d.narrative.generated_by));
+  const n=d.narrative||{};
+  out.append(el('h2',null,"MM's take"));
+  if(n.mm_narrative) out.append(el('p',null,n.mm_narrative));
+  if(n.standard_narrative) out.append(el('p',null,'Conventional read: '+n.standard_narrative));
+  if(n.disagreement) out.append(el('p','warn','Where they disagree: '+n.disagreement));
+  if(n.caveat) out.append(el('p','note','Biggest risk to this call: '+n.caveat));
+  out.append(el('p','note','Written by: '+(n.generated_by||'deterministic template')));
   out.append(el('p','note', d.disclaimer||''));
 }
 

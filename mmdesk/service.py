@@ -34,7 +34,7 @@ from .card import DISCLAIMER, VERSION
 from .data import Grounder, intraday_supported
 from .decision import build_decision_card
 from .journal import Journal, summary
-from .llm import LLMConfig, narrate
+from .llm import LLMConfig, narrate, template_narrative
 from .retrieval_shim import (ambiguous, corpus_available, corpus_coverage,
                              passage_count, search)
 from .rules import Account, Setup
@@ -244,17 +244,18 @@ def _build_response(request: AnalyzeRequest, request_id: str) -> dict:
 
         data["corpus_refusal"] = _refusal()
     allow_cloud = os.environ.get("MMDESK_ALLOW_CLOUD_LLM") == "1"
-    data["narrative"] = (
-        narrate(data, hits) if allow_cloud
-        else {
-            "verdict_reason": data.get("verdict_reason", ""),
-            "mm_narrative": "",
-            "standard_narrative": "",
-            "disagreement": (data.get("disagreement") or {}).get("summary", ""),
-            "caveat": (data.get("falsifiers") or [""])[0],
-            "generated_by": "template (cloud model disabled: set MMDESK_ALLOW_CLOUD_LLM=1)",
-        }
-    )
+    # The opinion is always shown. Without a model it is composed deterministically from the
+    # card's own fields and labelled as such; with one, the model writes the prose and is
+    # labelled by name. Either way the reader knows which layer spoke.
+    if allow_cloud and narrate:
+        data["narrative"] = narrate(data, hits)
+    else:
+        data["narrative"] = template_narrative(data)
+        data["narrative"]["generated_by"] = (
+            "deterministic template (cloud model disabled)"
+            if not allow_cloud else "deterministic template (no model key configured)"
+        )
+
     card.narrative = data["narrative"]
 
     try:
@@ -271,7 +272,10 @@ def _build_response(request: AnalyzeRequest, request_id: str) -> dict:
         "corpus_coverage": corpus_coverage(),
         "rules_version": VERSION,
         "rubric_version": (score_meta or {}).get("source", "unknown"),
-        "llm_provider": "cloud (opt-in)" if allow_cloud else "none (template)",
+        "llm_provider": (
+            f"{LLMConfig.from_env().provider} / {LLMConfig.from_env().model}"
+            if allow_cloud and LLMConfig.from_env().configured else "none (template)"
+        ),
         "missing_fields": g.missing,
         "disclaimer_version": VERSION,
     }

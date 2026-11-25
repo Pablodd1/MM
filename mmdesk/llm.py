@@ -33,15 +33,26 @@ class LLMConfig:
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
-        return cls(
-            api_key=os.environ.get("DEEPSEEK_API_KEY", "").strip(),
-            base_url=os.environ.get("DEEPSEEK_BASE_URL", DEFAULT_BASE).strip(),
-            model=os.environ.get("DEEPSEEK_MODEL", DEFAULT_MODEL).strip(),
-        )
+        """Any OpenAI-compatible endpoint, not just DeepSeek.
+
+        MMDESK_LLM_* wins; DEEPSEEK_* is kept so an existing deployment does not break.
+        Groq, OpenRouter, Together, vLLM and llama.cpp's server all speak this shape.
+        """
+        key = (os.environ.get("MMDESK_LLM_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "").strip()
+        base = (os.environ.get("MMDESK_LLM_BASE") or os.environ.get("DEEPSEEK_BASE_URL")
+                or DEFAULT_BASE).strip()
+        model = (os.environ.get("MMDESK_LLM_MODEL") or os.environ.get("DEEPSEEK_MODEL")
+                 or DEFAULT_MODEL).strip()
+        return cls(api_key=key, base_url=base, model=model)
 
     @property
     def configured(self) -> bool:
         return bool(self.api_key)
+
+    @property
+    def provider(self) -> str:
+        host = self.base_url.split("//")[-1].split("/")[0]
+        return host or "unknown"
 
 
 SYSTEM = """You are the writing layer of a decision-support tool.
