@@ -24,6 +24,13 @@
   button{margin-top:14px;width:100%;background:var(--accent);color:#04101f;border:0;border-radius:7px;padding:11px;font-weight:650;font-size:14px;cursor:pointer}
   button:disabled{opacity:.55;cursor:wait}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .opinion{margin-top:22px;border-top:1px solid #e6e3dc;padding-top:14px}
+  .ophead{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .opbtn{background:#1a1a1a;color:#fff;border:0;padding:9px 16px;border-radius:8px;cursor:pointer;font-size:13px}
+  .opbtn:disabled{opacity:.6;cursor:default}
+  .opbody{margin-top:10px}
+  .opbody h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#8a8378;margin:14px 0 4px}
+  .cite{display:block;font-size:13px;color:#1683E0;text-decoration:none;margin:6px 0;line-height:1.45}
   .verdict{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
   .pill{border-radius:999px;padding:5px 12px;font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.05em}
   .pill.add,.pill.hold{background:rgba(63,185,80,.14);color:var(--green);border:1px solid rgba(63,185,80,.35)}
@@ -109,6 +116,46 @@ const out = $('#out');
 function el(tag, cls, text){ const n=document.createElement(tag); if(cls)n.className=cls; if(text!=null)n.textContent=text; return n; }
 function kv(k,v){ const r=el('div','kv'); r.append(el('span',null,k), el('span',null,String(v))); return r; }
 function money(x){ return x==null?'—':'$'+Number(x).toLocaleString(undefined,{maximumFractionDigits:2}); }
+
+async function loadOpinion(body){
+  if(!body) return;
+  const box=document.createElement('div'); box.className='opinion';
+  const head=document.createElement('div'); head.className='ophead';
+  head.append(el('h2',null,'MM opinion'));
+  const btn=el('button',null,'Ask for the opinion'); btn.type='button'; btn.className='opbtn';
+  head.append(btn); box.append(head);
+  const bodyEl=el('div','opbody','Press the button: the model reads this card and answers in two voices — the disciplined analysis, and Mark's, grounded in the cited passages.');
+  box.append(bodyEl); out.append(box);
+
+  btn.addEventListener('click', async ()=>{
+    btn.disabled=true; btn.innerHTML='<span class="spin"></span>Thinking…';
+    bodyEl.innerHTML='';
+    try{
+      const r=await fetch('/api/opinion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const d=await r.json();
+      if(!r.ok){ bodyEl.append(el('p','err', typeof d.detail==='string'?d.detail:JSON.stringify(d.detail))); }
+      else if(d.refused){ bodyEl.append(el('p','warn', d.reason||'No opinion on incomplete data.')); }
+      else{
+        bodyEl.append(kv('Stance', d.stance||'—'));
+        bodyEl.append(el('h3',null,'Analysis')); bodyEl.append(el('p',null,d.analysis||''));
+        bodyEl.append(el('h3',null,"Mark's read")); bodyEl.append(el('p',null,d.mm_opinion||''));
+        bodyEl.append(el('h3',null,'Do they agree?')); bodyEl.append(el('p',null,d.agreement||''));
+        bodyEl.append(el('h3',null,'What would prove this wrong')); bodyEl.append(el('p',null,d.falsifier||''));
+        const cits=(d.citations||[]).filter(c=>c.url);
+        if(cits.length){
+          bodyEl.append(el('h3',null,'His words'));
+          cits.forEach(c=>{
+            const a=document.createElement('a'); a.href=c.url; a.target='_blank'; a.rel='noopener';
+            a.className='cite'; a.textContent=`"${(c.text||'').slice(0,160)}…" — ${c.video_title||c.video_id}, ${c.stamp}`;
+            bodyEl.append(a);
+          });
+        }
+        bodyEl.append(el('p','note','Written by: '+(d.generated_by||'unknown')));
+      }
+    }catch(err){ bodyEl.append(el('p','err','Request failed: '+err.message)); }
+    finally{ btn.disabled=false; btn.textContent='Ask again'; }
+  });
+}
 
 function render(d){
   out.innerHTML='';
@@ -287,6 +334,8 @@ async function loadCrowd(ticker){
   }catch(err){ /* the card stands on its own if this fails */ }
 }
 
+let lastBody=null;
+
 $('#form').addEventListener('submit', async e=>{
   e.preventDefault();
   const btn=$('#go'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Analysing…';
@@ -301,7 +350,7 @@ $('#form').addEventListener('submit', async e=>{
     const res=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await res.json();
     if(!res.ok){ out.append(el('p','err', typeof d.detail==='string'?d.detail:JSON.stringify(d.detail,null,2))); }
-    else { render(d); loadCrowd(body.ticker); }
+    else { lastBody=body; render(d); loadCrowd(body.ticker); loadOpinion(body); }
   }catch(err){ out.append(el('p','err','Request failed: '+err.message)); }
   finally{ btn.disabled=false; btn.textContent='Analyse'; }
 });

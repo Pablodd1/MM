@@ -35,7 +35,8 @@ from .data import Grounder, intraday_supported
 from .decision import build_decision_card
 from .journal import Journal, summary
 from .llm import LLMConfig, narrate, template_narrative
-from .retrieval_shim import (ambiguous, corpus_available, corpus_coverage,
+from .opinion import opinion as op_opinion
+from .retrieval_shim import (ambiguous, corpus_available, corpus_coverage, search,
                              passage_count, search)
 from .rules import Account, Setup
 from .standard import atr, range_position, realised_vol, standard_lens, trend_score
@@ -95,6 +96,10 @@ class AnalyzeRequest(BaseModel):
     slippage_bps: float = Field(0.0, ge=0, le=200)
     existing_open_risk: float = Field(0.0, ge=0)
     allow_fractional_shares: bool = False
+
+
+class OpinionRequest(AnalyzeRequest):
+    """Same inputs as an analysis, because the opinion is a reading of that analysis."""
 
 
 @app.get("/health")
@@ -662,6 +667,35 @@ def chart_upload(
         "note": "The image is a reference. No value was read from it.",
     }
     return JSONResponse(data)
+
+
+@app.post("/api/opinion")
+def api_opinion(request: OpinionRequest, http_request: Request):
+    """The MM Opinion button: the model's reading of a card that was already computed.
+
+    It runs the same analysis so the model sees the numbers the page shows, then asks for two
+    voices — the disciplined analysis and Mark's, grounded in the retrieved passages. Nothing the
+    model returns is treated as a number; callers render figures from the card.
+    """
+    client = http_request.client.host if http_request.client else "unknown"
+    if not _rate_ok(client):
+        raise HTTPException(429, detail={"error": "rate_limited", "limit_per_minute": RATE_LIMIT})
+
+    card = _build_response(request, uuid.uuid4().hex[:16])
+    if card.get("verdict") == "INCOMPLETE":
+        return JSONResponse({"available": True, "refused": True,
+                             "reason": "the card is incomplete; no opinion on missing data",
+                             "generated_by": "none"}, status_code=200)
+
+    hits = search(request.question, k=4) if request.question else []
+    result = op_opinion(card, hits)
+    result["available"] = True
+    result["citations"] = [
+        {"video_id": h.get("video_id"), "stamp": h.get("stamp"),
+         "video_title": h.get("video_title"), "url": h.get("url"), "text": h.get("text")}
+        for h in hits[:3]
+    ]
+    return JSONResponse(result)
 
 
 @app.get("/", response_class=HTMLResponse)
