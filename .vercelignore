@@ -1,0 +1,15 @@
+# Never upload these to Vercel: they are large, local-only, or secret.
+audio/
+transcripts/
+.venv/
+runtime/
+__pycache__/
+.pytest_cache/
+tests/
+eval/
+*.log
+*.db
+.env
+.env.*
+selftest*.json
+stage*.json

@@ -1,0 +1,20 @@
+[project]
+name = "mmdesk"
+version = "0.1.0"
+requires-python = ">=3.12"
+# Mirrors requirements.txt on purpose. If Vercel picks pyproject over requirements.txt, the
+# dependencies still install; a manifest with no dependencies would deploy an app that cannot
+# import FastAPI.
+dependencies = [
+    "fastapi>=0.115",
+    "pydantic>=2.9",
+    "httpx>=0.27",
+    "python-multipart>=0.0.12",
+    "yfinance>=0.2.50",
+    "numpy>=1.26",
+]
+
+# Vercel's FastAPI preset loads the ASGI app from this entrypoint. Declared explicitly rather
+# than relying on filename detection, because a wrong guess here is a silent empty deployment.
+[tool.vercel]
+entrypoint = "asgi:app"
