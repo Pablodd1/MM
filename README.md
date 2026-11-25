@@ -79,8 +79,12 @@ answers from his general rules and says the corpus is silent on the specific que
 | GET | `/health` | corpus size, model/vision configuration, intraday support |
 | POST | `/api/analyze` | the decision card |
 | GET | `/api/journal` | stored calls + aggregate outcomes |
-| POST | `/api/journal/score` | grade entries against supplied price series |
-| POST | `/api/chart` | chart image → 503 until a vision provider is configured |
+| POST | `/api/journal/grade` | fetches split-adjusted OHLC itself and grades open calls at 30/90/180/365 days |
+| POST | `/api/persona` | what he actually said, verbatim, with the timestamp — or a refusal naming the missing word |
+| POST | `/api/scenario` | six rule-based investment styles on the same facts; a distribution, labelled not-a-forecast |
+| POST | `/api/crowd/talk` | the six styles influencing each other for N rounds; converges or splits |
+| POST | `/api/chart` | image plus **typed** levels → full analysis. Image alone is refused: no value is ever read from pixels |
+| POST | `/api/voice` | local push-to-talk (Whisper in, Kokoro out); 501 when the models are not installed |
 
 ## Design invariants
 
@@ -92,7 +96,20 @@ answers from his general rules and says the corpus is silent on the specific que
 
 ## Status
 
-Version 0.1.0. Deterministic core complete and tested; corpus engine working; service running.
-Chart parsing and the voice/avatar loop are not implemented yet — see `docs/ROADMAP.md`.
+Version 0.1.0. **110 tests passing.**
+
+| Part | State |
+|---|---|
+| Deterministic core, sizing, journal, API, UI | built and tested |
+| Corpus | **45 of 82 videos, 90 hours, 10,810 cited passages**; the rest are blocked by YouTube's bot check |
+| Persona | verbatim quotes with timestamps; **11/11 faithful, 3/3 refusals**, question coverage 0.80 — see `docs/PERSONA-FIDELITY.md` |
+| Retrieval | hit@5 0.82, hit@1 0.36 at this corpus size; the ranking regression and the rejected reranker are both in `docs/RETRIEVAL-CALIBRATION.md` |
+| Crowd | six styles plus a bounded-confidence influence model; measured, not asserted |
+| Voice | local push-to-talk only (7.5 s round trip); **not deployed**, no GPU on the host |
+| Avatar | not built; consent recorded, voice model not trained |
+| Calibration | **not done** — no journal horizon has closed, so no accuracy claim is made |
+
+What is deliberately refused: reading prices off a chart image, answering when the corpus is
+silent, and presenting the crowd as a probability. See `docs/KNOWN-LIMITATIONS.md`.
 
 Educational tool, not investment advice.
