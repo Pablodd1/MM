@@ -1,0 +1,31 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local data — never committed
+audio/
+transcripts/
+corpus/audio/
+runtime/
+card.json
+mentions-*.csv
+catalog-*.json
+*.db
+
+# Transcripts are derived from third-party video: keep them local.
+*.log
+gpu-ready.log
+warm*.log
+
+# Secrets
+.env
+.env.*
+
+# Media scratch
+voice*.wav
+err*.txt
+
+# The demo needs cited passages; the index is committed, raw audio is not.
+!corpus/passages.jsonl
+!corpus/video-meta.json

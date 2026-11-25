@@ -1,0 +1,20 @@
+{"id": "q01", "question": "what is the three point rule", "label": "answerable", "acceptable_videos": ["9PhWx9rzIaU"], "expected_stamp": "00:28:57", "note": "three points down from a ten"}
+{"id": "q02", "question": "when should I sell half my position", "label": "answerable", "acceptable_videos": ["9PhWx9rzIaU"], "expected_stamp": "00:29:59", "note": "sell half at a double"}
+{"id": "q03", "question": "how much cash should I hold", "label": "answerable", "acceptable_videos": ["9PhWx9rzIaU"], "expected_stamp": "00:16:54", "note": "cash is a position"}
+{"id": "q04", "question": "position sizing by conviction", "label": "answerable", "acceptable_videos": ["9PhWx9rzIaU"], "expected_stamp": "00:50:32", "note": "ten percent cap for high conviction"}
+{"id": "q05", "question": "hedge with RWM", "label": "answerable", "acceptable_videos": ["9PhWx9rzIaU"], "expected_stamp": "00:41:42", "note": "orange alert hedge"}
+{"id": "q06", "question": "risk reward ratio and how it sets size", "label": "answerable", "acceptable_videos": ["9PhWx9rzIaU", "T0Nd_fnoV3E"], "expected_stamp": "00:01:40", "note": "T0Nd_fnoV3E 01:02:33 works a 10:1 example out loud; accepted after reading it"}
+{"id": "q07", "question": "what makes a stock cheap", "label": "answerable", "acceptable_videos": ["RJ8zTCJaJhU", "5AO9tBxx6MM"], "expected_stamp": "00:27:16", "note": "5AO9tBxx6MM 01:44:22 says buy the green line and wait; accepted after reading it"}
+{"id": "q08", "question": "what is the money mark line", "label": "answerable", "acceptable_videos": ["MLydWWVcEDY", "jCS3eoQiXHI"], "expected_stamp": "02:01:26", "note": "partial: jCS3eoQiXHI 00:11:40 mocks his own line rather than defining it"}
+{"id": "q09", "question": "when do I take profits after a run", "label": "answerable", "acceptable_videos": ["9PhWx9rzIaU", "soExM_CXE5c"], "expected_stamp": "00:29:59", "note": "soExM_CXE5c 00:27:27 says get careful near 75 and take some profits; accepted"}
+{"id": "q10", "question": "where do I put my stop loss", "label": "answerable", "acceptable_videos": ["9PhWx9rzIaU", "Oj9-8r7-Pqg"], "expected_stamp": "00:28:57", "note": "Oj9-8r7-Pqg 02:13:41 says he dislikes stop losses; on-topic"}
+{"id": "q11", "question": "does he trade crypto", "label": "answerable", "acceptable_videos": ["6aKAJj2SKZA"], "expected_stamp": "01:42:59", "note": "he says plainly: I don't do crypto"}
+{"id": "n01", "question": "what does he think about REITs", "label": "mentioned_only", "note": "he does discuss REITs, but only to decline: 'I'm not a REIT specialist' (FUFmGZYy6WU @ 01:47:10). Served — and it must be shown as a decline, not as a view"}
+{"id": "n02", "question": "does he use bollinger bands", "label": "no_answer", "note": "tokens 'bollinger' and 'bands' have df=0"}
+{"id": "n03", "question": "ichimoku cloud strategy", "label": "no_answer", "note": "token 'ichimoku' has df=0"}
+{"id": "n04", "question": "bond ladder for retirement income", "label": "vocabulary_collision", "note": "'ladder' now occurs twice after the corpus grew (was df=0 at 17 videos); the serving passage is about YouTube income, not bond ladders — a word collision the gate cannot catch"}
+{"id": "n05", "question": "crypto staking yields", "label": "no_answer", "note": "token 'staking' has df=0"}
+{"id": "m01", "question": "what is his view on the quantum industry", "label": "mentioned_only", "note": "viewer question at jCS3eoQiXHI 01:52:17; no substantive answer"}
+{"id": "m02", "question": "does he trade forex", "label": "mentioned_only", "note": "one passing mention at T2lNhX479Pg 01:13:22"}
+{"id": "m03", "question": "does he trade oil futures", "label": "mentioned_only", "note": "passing mention at RJ8zTCJaJhU 00:15:35"}
+{"id": "m04", "question": "does he buy penny stocks", "label": "mentioned_only", "note": "'penny' appears only as 'count to the penny'"}

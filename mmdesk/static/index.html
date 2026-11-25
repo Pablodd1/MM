@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MM Desk — risk/reward decision support</title>
+<style>
+  :root{
+    --ink:#0d1117; --panel:#151b23; --line:#232b36; --text:#e6edf3; --muted:#8b98a8;
+    --green:#3fb950; --red:#f85149; --amber:#d29922; --accent:#58a6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ink);color:var(--text);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{border-bottom:1px solid var(--line);padding:18px 24px;display:flex;align-items:baseline;gap:14px}
+  h1{font-size:17px;margin:0;letter-spacing:.2px}
+  header .tag{font-size:12px;color:var(--muted)}
+  main{max-width:1080px;margin:0 auto;padding:24px}
+  .grid{display:grid;grid-template-columns:360px 1fr;gap:20px;align-items:start}
+  @media(max-width:860px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+  label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px;text-transform:uppercase;letter-spacing:.06em}
+  input,select,textarea{width:100%;background:#0b1017;border:1px solid var(--line);color:var(--text);border-radius:7px;padding:9px 10px;font:inherit}
+  textarea{resize:vertical;min-height:64px}
+  button{margin-top:14px;width:100%;background:var(--accent);color:#04101f;border:0;border-radius:7px;padding:11px;font-weight:650;font-size:14px;cursor:pointer}
+  button:disabled{opacity:.55;cursor:wait}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .verdict{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  .pill{border-radius:999px;padding:5px 12px;font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.05em}
+  .pill.add,.pill.hold{background:rgba(63,185,80,.14);color:var(--green);border:1px solid rgba(63,185,80,.35)}
+  .pill.trim,.pill.pass{background:rgba(248,81,73,.12);color:var(--red);border:1px solid rgba(248,81,73,.3)}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:22px 0 8px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  .kv{display:flex;justify-content:space-between;gap:14px;padding:5px 0;border-bottom:1px dashed rgba(35,43,54,.7);font-size:14px}
+  .kv span:first-child{color:var(--muted)}
+  .note{font-size:13px;color:var(--muted)}
+  .cite{font-size:13px;margin:8px 0;padding-left:10px;border-left:2px solid var(--accent)}
+  .cite a{color:var(--accent);text-decoration:none}
+  .warn{border-left:2px solid var(--amber);padding-left:10px;font-size:13px;color:#e3c07b;margin:10px 0}
+  .err{color:var(--red);font-size:14px;white-space:pre-wrap}
+  footer{max-width:1080px;margin:0 auto;padding:8px 24px 40px;color:var(--muted);font-size:12px}
+  .spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:s .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>MM Desk</h1>
+  <span class="tag">risk/reward decision support · built with Mark Gomes's permission</span>
+</header>
+<div style="background:#2a1d10;border-bottom:1px solid #4a3418;color:#e3c07b;font-size:12.5px;padding:9px 24px;line-height:1.45">
+  <strong>Educational research tool — not investment advice.</strong> Built with Mark Gomes's permission; he is not responsible for its output. Scores are an unvalidated proxy, not Mark Gomes's own rating. Market data may be delayed. AI-generated text may be wrong. Do not trade from this alone.
+</div>
+<main>
+  <div class="grid">
+    <form class="panel" id="form">
+      <label for="q">Question</label>
+      <textarea id="q" placeholder="Is NVDA a buy here? Should I trim after doubling?">Is this a buy here, with a stop under support?</textarea>
+
+      <label for="ticker">Ticker</label>
+      <input id="ticker" value="NVDA" autocomplete="off">
+
+      <div class="row">
+        <div><label for="equity">Account equity</label><input id="equity" type="number" value="50000" min="1" step="1000"></div>
+        <div><label for="risk">Risk / trade %</label><input id="risk" type="number" value="1" min="0.1" max="5" step="0.1"></div>
+      </div>
+
+      <div class="row">
+        <div><label for="alert">Market alert</label>
+          <select id="alert"><option value="green">green</option><option value="yellow">yellow</option><option value="orange">orange</option><option value="red">red</option></select>
+        </div>
+        <div><label for="mode">Mode</label>
+          <select id="mode"><option value="swing">swing</option><option value="intraday">intraday</option></select>
+        </div>
+      </div>
+
+      <label for="cash">Cash % (optional)</label>
+      <input id="cash" type="number" min="0" max="100" step="1" placeholder="e.g. 55">
+
+      <button id="go" type="submit">Analyse</button>
+
+      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+        <label>Or ask out loud</label>
+        <button id="mic" type="button" style="background:#21262d;color:var(--text);border:1px solid var(--line)">🎤 Hold to talk</button>
+        <p class="note" id="vnote">Speech is transcribed and answered locally. No audio leaves this machine.</p>
+      </div>
+
+      <p class="note" id="hint">Numbers are fetched live. Nothing is estimated: if a provider fails, the card stops.</p>
+    </form>
+
+    <section class="panel" id="out">
+      <p class="note">No analysis yet. Every card shows the two lenses, where they disagree, the size, and what would prove it wrong.</p>
+    </section>
+  </div>
+
+  <div class="panel" id="journalPanel" style="margin-top:20px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+      <h2 style="margin:0;border:0;padding:0">Journal — every call, graded</h2>
+      <button id="grade" type="button" style="width:auto;margin:0;padding:8px 14px">Grade against real prices</button>
+    </div>
+    <p class="note" id="jsummary">Loading…</p>
+    <div id="jlist"></div>
+  </div>
+</main>
+<footer id="foot">Educational tool, not investment advice. Built with Mark Gomes's permission; he is not responsible for its output. Voice and speech recognition run locally on this machine.</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+const out = $('#out');
+
+function el(tag, cls, text){ const n=document.createElement(tag); if(cls)n.className=cls; if(text!=null)n.textContent=text; return n; }
+function kv(k,v){ const r=el('div','kv'); r.append(el('span',null,k), el('span',null,String(v))); return r; }
+function money(x){ return x==null?'—':'$'+Number(x).toLocaleString(undefined,{maximumFractionDigits:2}); }
+
+function render(d){
+  out.innerHTML='';
+  const v = el('div','verdict');
+  v.append(el('span','pill '+d.verdict,d.verdict), el('strong',null,d.instrument), el('span','note',d.mode+' · '+(d.grounding?.as_of||'')));
+  out.append(v);
+  out.append(el('p','note', d.verdict_reason||''));
+
+  out.append(el('h2',null,'MM lens'));
+  const mm=d.mm_lens||{};
+  out.append(kv('Score', (mm.score_10??'?')+'/10'));
+  out.append(kv('Action', mm.action||'—'));
+  out.append(kv('Position', ((mm.position_pct||0)*100).toFixed(1)+'% of equity'));
+  out.append(kv('Shares', mm.shares??'—'));
+  out.append(kv('Alert', mm.alert||'—'));
+  if(mm.reason) out.append(el('div','warn', mm.reason));
+  if(mm.score_meta?.source) out.append(el('p','note','Score source: '+mm.score_meta.source));
+
+  out.append(el('h2',null,'Standard lens'));
+  const sl=d.standard_lens||{};
+  out.append(kv('Read', sl.action||'—'));
+  out.append(kv('Trend score', (sl.trend?.score??'?')+' / 3'));
+  out.append(kv('Price', money(sl.price)));
+  out.append(kv('Vol 20d (ann.)', sl.volatility_20d_annualised!=null?(sl.volatility_20d_annualised*100).toFixed(1)+'%':'—'));
+  out.append(kv('Vol 60d (ann.)', sl.volatility_60d_annualised!=null?(sl.volatility_60d_annualised*100).toFixed(1)+'%':'—'));
+  out.append(kv('ATR', sl.atr??'—'));
+
+  out.append(el('h2',null,'Disagreement'));
+  const dis=d.disagreement||{};
+  out.append(el('p',null,dis.summary||'—'));
+  if(dis.tie_break) out.append(el('div','warn',dis.tie_break));
+
+  out.append(el('h2',null,'Risk'));
+  const r=d.risk||{};
+  out.append(kv('Invalidation', money(r.invalidation)));
+  out.append(kv('First target', money(r.first_target)));
+  out.append(kv('Reward / risk', r.reward_risk??'—'));
+  out.append(kv('Risk at stop', money(r.risk_at_stop)));
+
+  if((d.corpus_hits||[]).length){
+    out.append(el('h2',null,'Cited from the corpus'));
+    d.corpus_hits.forEach(h=>{
+      const p=el('div','cite');
+      const a=el('a',null,'['+h.stamp+']'); a.href=h.url; a.target='_blank'; a.rel='noopener';
+      p.append(a, document.createTextNode(' '+(h.text||'').slice(0,260)+'…'));
+      const t=el('div','note',(h.video_title||'').slice(0,70)); p.append(t);
+      out.append(p);
+    });
+  } else {
+    out.append(el('h2',null,'Cited from the corpus'));
+    const why = d.corpus_refusal || '';
+    if(why.startsWith('vocabulary_absent:')){
+      const term = why.split(':')[1];
+      out.append(el('p','warn','The word “'+term+'” never appears in the 35 hours transcribed so far. That is not evidence he never said it — it is outside what this corpus holds.'));
+    } else if(why.startsWith('below_floor')){
+      out.append(el('p','warn','Passages matched, but all scored below the calibrated relevance floor, so none is cited as his view.'));
+    } else {
+      out.append(el('p','note','No indexed passage matched. The MM lens rests on his general rules, not a specific statement.'));
+    }
+  }
+
+  if((d.falsifiers||[]).length){
+    out.append(el('h2',null,'What would prove this wrong'));
+    const ul=el('ul'); d.falsifiers.forEach(f=>ul.append(el('li',null,f))); out.append(ul);
+  }
+
+  if(d.grounding?.missing?.length) out.append(el('div','warn','Incomplete data: '+d.grounding.missing.join(', ')));
+  if(d.narrative?.generated_by) out.append(el('p','note','Narrative: '+d.narrative.generated_by));
+  out.append(el('p','note', d.disclaimer||''));
+}
+
+let rec=null, chunks=[], stream=null;
+
+async function startRec(){
+  if(!navigator.mediaDevices?.getUserMedia){ $('#vnote').textContent='This browser cannot record audio.'; return; }
+  stream = await navigator.mediaDevices.getUserMedia({audio:true});
+  chunks=[];
+  const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
+  rec = new MediaRecorder(stream, mime?{mimeType:mime}:undefined);
+  rec.ondataavailable = e => { if(e.data.size) chunks.push(e.data); };
+  rec.onstop = sendVoice;
+  rec.start();
+  $('#mic').textContent='⏹ Stop and ask';
+  $('#mic').style.background='#5a1d1d';
+  $('#vnote').textContent='Listening… speak your question.';
+}
+
+function stopRec(){
+  if(rec && rec.state==='recording'){ rec.stop(); }
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  $('#mic').textContent='🎤 Hold to talk';
+  $('#mic').style.background='#21262d';
+}
+
+async function sendVoice(){
+  $('#vnote').textContent='Transcribing locally…';
+  const blob = new Blob(chunks, {type: chunks[0]?.type || 'audio/webm'});
+  const fd = new FormData();
+  fd.append('audio', blob, 'clip.webm');
+  fd.append('account_equity', $('#equity').value);
+  fd.append('risk_pct', String(Number($('#risk').value)/100));
+  fd.append('alert', $('#alert').value);
+  try{
+    const res = await fetch('/api/voice', {method:'POST', body:fd});
+    const d = await res.json();
+    if(!res.ok){
+      $('#vnote').textContent = 'Voice unavailable: ' + (typeof d.detail==='string'?d.detail:JSON.stringify(d.detail));
+      return;
+    }
+    $('#q').value = d.transcript || '';
+    if(d.ticker) $('#ticker').value = d.ticker;
+    $('#vnote').textContent = 'Heard: “' + (d.transcript||'') + '”';
+    render(d);
+    if(d.audio_b64){
+      const audio = new Audio('data:'+(d.audio_mime||'audio/wav')+';base64,'+d.audio_b64);
+      audio.play().catch(()=>{});
+    }
+  }catch(err){ $('#vnote').textContent='Voice request failed: '+err.message; }
+}
+
+async function loadJournal(keepSummary){
+  try{
+    const res = await fetch('/api/journal'); const d = await res.json();
+    if(!keepSummary) $('#jsummary').textContent = d.count ? (d.count+' entries · horizons 30/90/180/365 days') : 'No entries yet — run an analysis and it is written here automatically.';
+    $('#jlist').innerHTML='';
+    (d.entries||[]).slice(-8).reverse().forEach(e=>{
+      const row=el('div','kv');
+      row.append(el('span',null, e.created_at.slice(0,10)+' · '+e.instrument+' · '+e.verdict));
+      const graded = Object.keys(e.outcomes||{}).length;
+      row.append(el('span',null, graded? graded+' horizon(s) graded' : 'not graded yet'));
+      $('#jlist').append(row);
+    });
+  }catch(err){ $('#jsummary').textContent='Journal unavailable: '+err.message; }
+}
+
+$('#grade').addEventListener('click', async ()=>{
+  $('#grade').disabled=true; $('#jsummary').textContent='Fetching split-adjusted bars and simulating stops…';
+  try{
+    const res=await fetch('/api/journal/grade',{method:'POST'}); const d=await res.json();
+    if(!res.ok){ $('#jsummary').textContent='Grade failed: '+JSON.stringify(d.detail||d); return; }
+    const s=d.summary||{}; const k=Object.keys(s)[0];
+    $('#jsummary').textContent = d.graded
+      ? 'Graded '+d.graded+' entries. '+Object.entries(s).map(([h,v])=>h+'d: '+v.n+' calls, '+(v.hit_target_rate*100).toFixed(0)+'% hit target, '+(v.stopped_rate*100).toFixed(0)+'% stopped').join(' · ')
+      : 'Nothing to grade yet — '+(d.note || 'every entry was made today, so no 30/90/180/365-day horizon has closed.');
+    loadJournal(true);
+  }catch(err){ $('#jsummary').textContent='Grade failed: '+err.message; }
+  finally{ $('#grade').disabled=false; }
+});
+
+$('#mic').addEventListener('click', ()=>{ rec && rec.state==='recording' ? stopRec() : startRec().catch(e=>{$('#vnote').textContent='Microphone blocked: '+e.message;}); });
+
+async function loadCrowd(ticker){
+  try{
+    const res = await fetch('/api/scenario',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ticker})});
+    const d = await res.json();
+    if(!res.ok) return;
+    out.append(el('h2',null,'The crowd (synthetic)'));
+    out.append(el('p','note', (d.agents||6)+' rule-based styles · modal '+d.modal_stance+
+      ' · dispersion '+d.dispersion));
+    const wrap=el('div');
+    d.views.forEach(v=>{
+      const row=el('div','kv');
+      row.append(el('span',null, v.persona+' · '+v.stance));
+      row.append(el('span',null, v.reason));
+      wrap.append(row);
+    });
+    out.append(wrap);
+    out.append(el('p','note', d.label));
+  }catch(err){ /* the card stands on its own if this fails */ }
+}
+
+$('#form').addEventListener('submit', async e=>{
+  e.preventDefault();
+  const btn=$('#go'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Analysing…';
+  out.innerHTML='';
+  const body={
+    question:$('#q').value, ticker:$('#ticker').value.trim().toUpperCase(),
+    account_equity:Number($('#equity').value), risk_pct:Number($('#risk').value)/100,
+    alert:$('#alert').value, mode:$('#mode').value,
+    cash_pct: $('#cash').value==='' ? null : Number($('#cash').value)/100
+  };
+  try{
+    const res=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await res.json();
+    if(!res.ok){ out.append(el('p','err', typeof d.detail==='string'?d.detail:JSON.stringify(d.detail,null,2))); }
+    else { render(d); loadCrowd(body.ticker); }
+  }catch(err){ out.append(el('p','err','Request failed: '+err.message)); }
+  finally{ btn.disabled=false; btn.textContent='Analyse'; }
+});
+loadJournal();
+</script>
+</body>
+</html>

@@ -1,0 +1,150 @@
+"""The persona, built so it cannot misquote him.
+
+The difference between this and a chatbot in his voice: the persona **quotes**. It selects
+the sentences he actually said, keeps them verbatim, and attaches the timestamp. It does not
+paraphrase, summarise, or infer what he "would" think.
+
+That choice is what makes fidelity measurable. A paraphrase can only be graded by opinion; a
+verbatim quote either appears in the transcript or it doesn't, and a number in it either
+appears or it doesn't. `eval/persona_fidelity.py` measures exactly that.
+
+When the corpus has nothing, the persona says so. A "Simon says" that always has an answer is
+a horoscope; this one is allowed to be silent.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
+WORD_RE = re.compile(r"[A-Za-z0-9$][A-Za-z0-9$'\-]*")
+NUMBER_RE = re.compile(r"\d[\d,]*\.?\d*")
+
+
+@dataclass
+class Utterance:
+    """One attributed statement: his words, his timestamp, no paraphrase."""
+    question: str
+    quote: str
+    video_id: str
+    video_title: str
+    stamp: str
+    url: str
+    score: float
+    supported_terms: list[str] = field(default_factory=list)
+    missing_terms: list[str] = field(default_factory=list)
+    refused: bool = False
+    refusal_reason: str | None = None
+    note: str = ""
+
+    @property
+    def supported(self) -> bool:
+        return not self.refused and not self.missing_terms
+
+    def to_dict(self) -> dict:
+        return {
+            "question": self.question,
+            "quote": self.quote,
+            "video_id": self.video_id,
+            "video_title": self.video_title,
+            "stamp": self.stamp,
+            "url": self.url,
+            "score": self.score,
+            "refused": self.refused,
+            "refusal_reason": self.refusal_reason,
+            "supported": self.supported,
+            "supported_terms": self.supported_terms,
+            "missing_terms": self.missing_terms,
+            "note": self.note,
+            "attribution": "verbatim from the transcript — not a paraphrase",
+        }
+
+
+def _content_terms(text: str) -> set[str]:
+    from retrieval import tokens
+
+    return set(tokens(text))
+
+
+def best_span(passage: str, question: str) -> str:
+    """The best *contiguous* run of one or two sentences.
+
+    Contiguity is not cosmetic. Joining the two best-scoring sentences from different parts of
+    a passage produces words he never said in that order — a fabricated quote built out of real
+    fragments. Only adjacent sentences are ever combined, and the winner is scored as a unit.
+    """
+    # Every sentence stays in the list, including short ones. Filtering short sentences before
+    # pairing makes two distant sentences look adjacent: "…three point rule." followed by
+    # "I call it." and "This is a 10 point scale." would be stitched straight to a later
+    # sentence, producing a quote that reads perfectly and was never said.
+    sentences = [s.strip() for s in SENTENCE_RE.split(passage) if s.strip()]
+    if not sentences:
+        return passage.strip()
+    q = _content_terms(question)
+
+    def score(text: str) -> tuple[int, int]:
+        # overlapping terms first; among equals prefer the longer contiguous run, because a
+        # one-clause answer is usually too thin to be useful even when it is accurate
+        return (len(q & _content_terms(text)), len(text))
+
+    candidates = [(s, i) for i, s in enumerate(sentences) if len(s) >= 30]
+    for i in range(len(sentences) - 1):
+        joined = sentences[i] + " " + sentences[i + 1]
+        if len(joined) >= 30:
+            candidates.append((joined, i))
+    best_text, _ = max(candidates, key=lambda c: score(c[0]))
+    return best_text.strip()
+
+
+def speak(question: str, hits: list[dict]) -> Utterance:
+    """Return an attributed utterance, or a labelled refusal. Never a guess."""
+    if not hits:
+        from .retrieval_shim import refusal_reason
+
+        reason = refusal_reason() or "no lexical match"
+        if reason.startswith("vocabulary_absent:"):
+            word = reason.split(":", 1)[1]
+            text = (
+                f"He does not use the word “{word}” anywhere in the material transcribed so far, "
+                "so there is nothing of his to quote. That is a limit of the corpus, not a "
+                "statement about his view."
+            )
+        else:
+            text = (
+                "No passage of his matched this closely enough to quote. The corpus covers part "
+                "of his channel, so silence here is not evidence of his opinion."
+            )
+        return Utterance(
+            question=question, quote=text, video_id="", video_title="", stamp="", url="",
+            score=0.0, refused=True, refusal_reason=reason, note=text,
+        )
+
+    top = hits[0]
+    passage = top.get("text", "")
+    quote = best_span(passage, question)
+    if len(quote) > 320:
+        cut = quote[:320]
+        quote = cut[: cut.rfind(" ")].rstrip() + "…"
+
+    q_terms = _content_terms(question)
+    supported = sorted(t for t in q_terms if t in _content_terms(quote))
+    # "missing" only counts terms of the question that the quote does not address. The quote is
+    # verbatim, so this is a note about coverage, not about faithfulness.
+    missing = sorted(q_terms - set(supported))
+    return Utterance(
+        question=question,
+        quote=quote,
+        video_id=top.get("video_id", ""),
+        video_title=top.get("video_title", ""),
+        stamp=top.get("stamp", ""),
+        url=top.get("url", ""),
+        score=float(top.get("score", 0.0)),
+        supported_terms=supported,
+        missing_terms=missing,
+        note="quote only; the app does not put words in his mouth",
+    )
+
+
+def numbers_in(text: str) -> set[str]:
+    return {n.replace(",", "").rstrip(".") for n in NUMBER_RE.findall(text)}

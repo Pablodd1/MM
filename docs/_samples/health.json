@@ -1,0 +1,42 @@
+{
+  "ok": true,
+  "version": "0.1.0",
+  "corpus": {
+    "available": true,
+    "passages": 4279
+  },
+  "llm": {
+    "configured": false,
+    "cloud_enabled": false,
+    "model": null
+  },
+  "corpus_coverage": {
+    "videos_transcribed": 17,
+    "videos_in_catalogue": 82,
+    "hours_transcribed": 35.0,
+    "passages": 4279,
+    "coverage_note": "A refusal means no indexed statement was found in the transcribed videos, not that none exists."
+  },
+  "vision": {
+    "configured": false
+  },
+  "intraday_supported": false,
+  "voice": {
+    "stt": {
+      "model": "large-v3",
+      "device": "cuda",
+      "loaded": false,
+      "audio_supported": true
+    },
+    "tts": {
+      "engine": "kokoro-onnx",
+      "voice": "am_michael",
+      "model_present": true,
+      "loaded": false
+    },
+    "local_only": true
+  },
+  "journal_entries": 16,
+  "journal_persistent": true,
+  "data_dir": "C:\\Users\\GAMEPOWER\\projects\\moneymark-research\\runtime"
+}
