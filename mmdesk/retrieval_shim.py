@@ -67,38 +67,47 @@ def refusal_reason() -> str | None:
 
 
 def corpus_coverage() -> dict:
-    """What the corpus actually covers — transcribed, not merely catalogued.
+    """What the corpus actually covers — read from the index, not from files that may be absent.
 
-    The reviewer's point: a refusal must never read as "he never said this". Counting the
-    catalogue (82 videos) instead of the transcripts (17) would overstate coverage by ~5x,
-    so this reads the transcripts that actually back the index.
+    The first version counted `transcripts/*.json`, which exists on this machine but is
+    deliberately excluded from the deployment. On Vercel it reported "0 videos, 0 hours" while
+    serving 10,810 passages — a contradiction a reader would rightly distrust. The index is the
+    single source of truth now; transcripts only refine it when they happen to be present.
     """
     import json as _json
 
-    transcripts = sorted((ROOT / "transcripts").glob("*.json"))
+    corpus = _corpus()
+    ids = {row["video_id"] for row in corpus.rows}
     seconds = 0.0
-    ids: set[str] = set()
-    for path in transcripts:
-        if path.name.startswith("_"):
-            continue
-        try:
-            data = _json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        ids.add(data.get("video_id") or path.stem)
-        seconds += float(data.get("duration") or 0)
+    catalogue_total = len(ids)
 
-    catalogue = 0
     meta_path = ROOT / "corpus" / "video-meta.json"
     if meta_path.exists():
-        catalogue = len(_json.loads(meta_path.read_text(encoding="utf-8")))
+        meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+        catalogue_total = len(meta) or len(ids)
+        for vid in ids:
+            seconds += float(meta.get(vid, {}).get("duration") or 0)
+
+    # If the transcripts are here (local), they carry durations the index does not.
+    if seconds == 0.0:
+        for path in sorted((ROOT / "transcripts").glob("*.json")):
+            if path.name.startswith("_"):
+                continue
+            try:
+                data = _json.loads(path.read_text(encoding="utf-8"))
+            except (_json.JSONDecodeError, OSError):
+                continue
+            seconds += float(data.get("duration") or 0)
+
+    from retrieval import DEFAULT_MIN_SCORE
 
     return {
         "videos_transcribed": len(ids),
-        "videos_in_catalogue": catalogue,
+        "videos_in_catalogue": catalogue_total,
         "hours_transcribed": round(seconds / 3600.0, 1),
-        "passages": passage_count(),
-        "min_score": _corpus().min_score if hasattr(_corpus(), "min_score") else None,
+        "passages": len(corpus.rows),
+        "min_score": DEFAULT_MIN_SCORE,
+        "read_from": "corpus/passages.jsonl",
         "coverage_note": (
             "A refusal means no indexed statement was found in the transcribed videos, "
             "not that none exists."
