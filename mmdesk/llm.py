@@ -20,6 +20,15 @@ from typing import Any
 DEFAULT_BASE = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-chat"
 
+# Key prefixes identify the provider well enough to pick a sensible endpoint, so a pasted key
+# works without the operator also knowing which base URL to type. Model names are discovered
+# from /models rather than guessed — provider catalogues change faster than this file.
+PROVIDERS = {
+    "gsk_": ("https://api.groq.com/openai/v1", "openai/gpt-oss-20b"),
+    "xai-": ("https://api.x.ai/v1", "grok-4.7"),
+    "sk-or-": ("https://openrouter.ai/api/v1", "meta-llama/llama-3.3-70b-instruct"),
+}
+
 NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
 
@@ -39,15 +48,36 @@ class LLMConfig:
         Groq, OpenRouter, Together, vLLM and llama.cpp's server all speak this shape.
         """
         key = (os.environ.get("MMDESK_LLM_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "").strip()
+        inferred_base, inferred_model = DEFAULT_BASE, DEFAULT_MODEL
+        for prefix, (base_url, model_name) in PROVIDERS.items():
+            if key.startswith(prefix):
+                inferred_base, inferred_model = base_url, model_name
+                break
         base = (os.environ.get("MMDESK_LLM_BASE") or os.environ.get("DEEPSEEK_BASE_URL")
-                or DEFAULT_BASE).strip()
+                or inferred_base).strip().rstrip("/")
         model = (os.environ.get("MMDESK_LLM_MODEL") or os.environ.get("DEEPSEEK_MODEL")
-                 or DEFAULT_MODEL).strip()
+                 or inferred_model).strip()
         return cls(api_key=key, base_url=base, model=model)
 
     @property
     def configured(self) -> bool:
         return bool(self.api_key)
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+
+    def discover_model(self) -> str:
+        """Ask the provider what it serves. Model names retire; a hard-coded default then 404s."""
+        try:
+            resp = httpx.get(f"{self.base_url}/models", headers=self.headers, timeout=30)
+            if resp.status_code != 200:
+                return self.model
+            names = [m.get("id", "") for m in resp.json().get("data", [])]
+            grok = sorted((n for n in names if n.startswith("grok-")), reverse=True)
+            return grok[0] if grok else self.model
+        except Exception:
+            return self.model
 
     @property
     def provider(self) -> str:
@@ -164,6 +194,15 @@ def narrate(card: dict, corpus_hits: list[dict], config: LLMConfig | None = None
                 headers={"Authorization": f"Bearer {cfg.api_key}", "Content-Type": "application/json"},
                 json=payload, timeout=cfg.timeout,
             )
+            if r.status_code == 404 and "model" in r.text.lower():
+                fresh = cfg.discover_model()
+                if fresh and fresh != payload["model"]:
+                    payload["model"] = fresh
+                    cfg.model = fresh
+                    r = httpx.post(
+                        f"{cfg.base_url.rstrip('/')}/chat/completions",
+                        headers=cfg.headers, json=payload, timeout=cfg.timeout,
+                    )
             r.raise_for_status()
             content = r.json()["choices"][0]["message"]["content"]
             data = json.loads(content)
