@@ -22,7 +22,7 @@ import uuid
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from . import rules
 from . import rubric
@@ -96,6 +96,14 @@ class AnalyzeRequest(BaseModel):
     slippage_bps: float = Field(0.0, ge=0, le=200)
     existing_open_risk: float = Field(0.0, ge=0)
     allow_fractional_shares: bool = False
+
+    @model_validator(mode="after")
+    def _bands_ordered(self):
+        """Reject inverted fundamental bands at the edge, not with a 500 from deep inside the rubric."""
+        if self.green_line is not None and self.red_line is not None:
+            if self.red_line <= self.green_line:
+                raise ValueError("red_line (too expensive) must sit above green_line (fair value)")
+        return self
 
 
 class OpinionRequest(AnalyzeRequest):
