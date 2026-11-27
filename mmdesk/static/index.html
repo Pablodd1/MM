@@ -3,75 +3,84 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MM Desk — risk/reward decision support</title>
+<meta name="referrer" content="no-referrer">
+<title>Decision Desk — risk/reward decision support</title>
 <style>
   :root{
-    --ink:#0d1117; --panel:#151b23; --line:#232b36; --text:#e6edf3; --muted:#8b98a8;
-    --green:#3fb950; --red:#f85149; --amber:#d29922; --accent:#58a6ff;
+    --ink:#0d1117; --panel:#151b23; --line:#39424e; --text:#e6edf3; --muted:#9aa7b6;
+    --green:#3fb950; --red:#f85149; --amber:#d29922; --accent:#58a6ff; --field:#0b1017;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--ink);color:var(--text);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-  header{border-bottom:1px solid var(--line);padding:18px 24px;display:flex;align-items:baseline;gap:14px}
-  h1{font-size:17px;margin:0;letter-spacing:.2px}
-  header .tag{font-size:12px;color:var(--muted)}
+  body{margin:0;background:var(--ink);color:var(--text);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{border-bottom:1px solid var(--line);padding:18px 24px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{font-size:18px;margin:0;letter-spacing:.2px}
+  header .tag{font-size:13px;color:var(--muted)}
   main{max-width:1080px;margin:0 auto;padding:24px}
   .grid{display:grid;grid-template-columns:360px 1fr;gap:20px;align-items:start}
   @media(max-width:860px){.grid{grid-template-columns:1fr}}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
   label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px;text-transform:uppercase;letter-spacing:.06em}
-  input,select,textarea{width:100%;background:#0b1017;border:1px solid var(--line);color:var(--text);border-radius:7px;padding:9px 10px;font:inherit}
+  input,select,textarea{width:100%;background:var(--field);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:10px;font:inherit;font-size:16px}
   textarea{resize:vertical;min-height:64px}
-  button{margin-top:14px;width:100%;background:var(--accent);color:#04101f;border:0;border-radius:7px;padding:11px;font-weight:650;font-size:14px;cursor:pointer}
+  :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  button{margin-top:14px;width:100%;min-height:44px;background:var(--accent);color:#04101f;border:0;border-radius:7px;padding:11px 16px;font:inherit;font-weight:650;cursor:pointer}
   button:disabled{opacity:.55;cursor:wait}
+  .secondary{background:#21262d;color:var(--text);border:1px solid var(--line)}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .opinion{margin-top:22px;border-top:1px solid #e6e3dc;padding-top:14px}
-  .ophead{display:flex;align-items:center;justify-content:space-between;gap:12px}
-  .opbtn{background:#1a1a1a;color:#fff;border:0;padding:9px 16px;border-radius:8px;cursor:pointer;font-size:13px}
-  .opbtn:disabled{opacity:.6;cursor:default}
-  .opbody{margin-top:10px}
-  .opbody h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#8a8378;margin:14px 0 4px}
-  .cite{display:block;font-size:13px;color:#1683E0;text-decoration:none;margin:6px 0;line-height:1.45}
-  .verdict{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
-  .pill{border-radius:999px;padding:5px 12px;font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.05em}
-  .pill.add,.pill.hold{background:rgba(63,185,80,.14);color:var(--green);border:1px solid rgba(63,185,80,.35)}
-  .pill.trim,.pill.pass{background:rgba(248,81,73,.12);color:var(--red);border:1px solid rgba(248,81,73,.3)}
-  h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:22px 0 8px;border-bottom:1px solid var(--line);padding-bottom:6px}
-  .kv{display:flex;justify-content:space-between;gap:14px;padding:5px 0;border-bottom:1px dashed rgba(35,43,54,.7);font-size:14px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:22px 0 8px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  #out h2:first-child{margin-top:0}
+  .kv{display:flex;justify-content:space-between;gap:14px;padding:5px 0;border-bottom:1px dashed rgba(57,66,78,.8);font-size:15px}
   .kv span:first-child{color:var(--muted)}
-  .note{font-size:13px;color:var(--muted)}
-  .cite{font-size:13px;margin:8px 0;padding-left:10px;border-left:2px solid var(--accent)}
-  .cite a{color:var(--accent);text-decoration:none}
-  .warn{border-left:2px solid var(--amber);padding-left:10px;font-size:13px;color:#e3c07b;margin:10px 0}
-  .err{color:var(--red);font-size:14px;white-space:pre-wrap}
-  footer{max-width:1080px;margin:0 auto;padding:8px 24px 40px;color:var(--muted);font-size:12px}
+  .verdict{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  .pill{border-radius:999px;padding:5px 12px;font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;border:1px solid}
+  .pill.add,.pill.hold{background:rgba(63,185,80,.14);color:var(--green);border-color:rgba(63,185,80,.35)}
+  .pill.trim,.pill.trail,.pill.pass{background:rgba(248,81,73,.12);color:var(--red);border-color:rgba(248,81,73,.3)}
+  .note{font-size:14px;color:var(--muted)}
+  .warn{border-left:3px solid var(--amber);padding-left:10px;font-size:14px;color:#e3c07b;margin:10px 0}
+  .err{color:var(--red);font-size:15px;white-space:pre-wrap}
+  .ai{border-left:3px solid var(--accent);padding-left:10px;margin:10px 0}
+  .cite{display:block;font-size:14px;color:var(--text);text-decoration:underline;margin:8px 0;line-height:1.45;padding-left:10px;border-left:2px solid var(--line)}
+  .cite b{font-weight:650}
+  a{color:var(--accent)}
+  .passages a{color:var(--accent);display:block;margin:6px 0}
+  .banner{background:#2a1d10;border-bottom:1px solid #4a3418;color:#e3c07b;font-size:14px;padding:10px 24px;line-height:1.5}
+  footer{max-width:1080px;margin:0 auto;padding:8px 24px 40px;color:var(--muted);font-size:13px}
   .spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:s .7s linear infinite;vertical-align:-2px;margin-right:6px}
   @keyframes s{to{transform:rotate(360deg)}}
+  @media(prefers-reduced-motion:reduce){.spin{animation:none;border-radius:0;border-top-color:rgba(255,255,255,.25)}}
+  details summary{cursor:pointer;color:var(--muted);font-size:14px}
+  .opinion{margin-top:22px;border-top:1px solid var(--line);padding-top:14px}
+  .ophead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .ophead h2{margin:0;border:0;padding:0}
+  .opbtn{width:auto;margin:0}
 </style>
 </head>
 <body>
 <header>
-  <h1>MM Desk</h1>
-  <span class="tag">risk/reward decision support · built with Mark Gomes's permission</span>
+  <h1>Decision Desk</h1>
+  <span class="tag" id="tag">risk/reward decision support</span>
 </header>
-<div style="background:#2a1d10;border-bottom:1px solid #4a3418;color:#e3c07b;font-size:12.5px;padding:9px 24px;line-height:1.45">
-  <strong>Educational research tool — not investment advice.</strong> Built with Mark Gomes's permission; he is not responsible for its output. Scores are an unvalidated proxy, not Mark Gomes's own rating. Market data may be delayed. AI-generated text may be wrong. Do not trade from this alone.
+<div class="banner" id="notice" role="note">
+  <strong>Educational research tool — not investment advice.</strong>
+  Scores are an unvalidated proxy computed from your inputs, not anyone's rating.
+  Market data may be delayed. AI-generated text may be wrong. Do not trade from this alone.
 </div>
 <main>
   <div class="grid">
-    <form class="panel" id="form">
+    <form class="panel" id="form" aria-describedby="hint">
       <label for="q">Question</label>
       <textarea id="q" placeholder="Is NVDA a buy here? Should I trim after doubling?">Is this a buy here, with a stop under support?</textarea>
 
       <label for="ticker">Ticker</label>
-      <input id="ticker" value="NVDA" autocomplete="off">
+      <input id="ticker" value="NVDA" autocomplete="off" maxlength="12" required>
 
       <div class="row">
-        <div><label for="equity">Account equity</label><input id="equity" type="number" value="50000" min="1" step="1000"></div>
-        <div><label for="risk">Risk / trade %</label><input id="risk" type="number" value="1" min="0.1" max="5" step="0.1"></div>
+        <div><label for="equity">Account equity</label><input id="equity" type="number" value="50000" min="1" step="1" required></div>
+        <div><label for="risk">Risk / trade %</label><input id="risk" type="number" value="1" min="0.1" max="5" step="0.1" required></div>
       </div>
 
       <div class="row">
-        <div><label for="alert">Market alert</label>
+        <div><label for="alert">Market alert (your input)</label>
           <select id="alert"><option value="green">green</option><option value="yellow">yellow</option><option value="orange">orange</option><option value="red">red</option></select>
         </div>
         <div><label for="mode">Mode</label>
@@ -79,282 +88,459 @@
         </div>
       </div>
 
-      <label for="cash">Cash % (optional)</label>
-      <input id="cash" type="number" min="0" max="100" step="1" placeholder="e.g. 55">
+      <label for="cash">Cash % (optional: caps the size to what you hold in cash)</label>
+      <input id="cash" type="number" min="0" max="100" step="any" placeholder="e.g. 55">
+
+      <details>
+        <summary>Levels and valuation lines (optional)</summary>
+        <div class="row">
+          <div><label for="support">Support / stop</label><input id="support" type="number" min="0" step="any" placeholder="computed"></div>
+          <div><label for="target">First target</label><input id="target" type="number" min="0" step="any" placeholder="computed"></div>
+        </div>
+        <div class="row">
+          <div><label for="green">Green line (score 10, cheap)</label><input id="green" type="number" min="0" step="any" placeholder="none"></div>
+          <div><label for="red">Red line (score 1, expensive)</label><input id="red" type="number" min="0" step="any" placeholder="none"></div>
+        </div>
+        <p class="note">Left blank, support is the 20-bar low less 0.5% and the target is the 60-bar high. The card says which it used.</p>
+      </details>
 
       <button id="go" type="submit">Analyse</button>
 
-      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
-        <label>Or ask out loud</label>
-        <button id="mic" type="button" style="background:#21262d;color:var(--text);border:1px solid var(--line)">🎤 Hold to talk</button>
-        <p class="note" id="vnote">Speech is transcribed and answered locally. No audio leaves this machine.</p>
+      <div id="voicebox" hidden style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+        <h2 id="voicelabel" style="margin-top:0">Or ask out loud</h2>
+        <button id="mic" type="button" class="secondary" aria-labelledby="voicelabel" aria-pressed="false">Record a question</button>
+        <p class="note" id="vnote" role="status"></p>
       </div>
 
-      <p class="note" id="hint">Numbers are fetched live. Nothing is estimated: if a provider fails, the card stops.</p>
+      <p class="note" id="hint">Numbers are fetched live. Nothing is estimated: if the provider fails, the card stops.</p>
     </form>
 
-    <section class="panel" id="out">
+    <section class="panel" id="out" aria-live="polite" tabindex="-1">
       <p class="note">No analysis yet. Every card shows the two lenses, where they disagree, the size, and what would prove it wrong.</p>
     </section>
   </div>
 
   <div class="panel" id="journalPanel" style="margin-top:20px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
       <h2 style="margin:0;border:0;padding:0">Journal — every call, graded</h2>
-      <button id="grade" type="button" style="width:auto;margin:0;padding:8px 14px">Grade against real prices</button>
+      <button id="grade" type="button" class="secondary" style="width:auto;margin:0">Grade against real prices</button>
     </div>
-    <p class="note" id="jsummary">Loading…</p>
+    <p class="note" id="jsummary" role="status">Loading…</p>
     <div id="jlist"></div>
   </div>
 </main>
-<footer id="foot">Educational tool, not investment advice. Built with Mark Gomes's permission; he is not responsible for its output. Voice and speech recognition run locally on this machine.</footer>
+<footer id="foot">
+  Educational tool, not investment advice. Entries in the journal are stored on this server, under an
+  identifier kept in this browser.
+</footer>
+<noscript><p class="err">This page needs JavaScript to analyse anything.</p></noscript>
 
 <script>
 const $ = s => document.querySelector(s);
 const out = $('#out');
 
-function el(tag, cls, text){ const n=document.createElement(tag); if(cls)n.className=cls; if(text!=null)n.textContent=text; return n; }
-function kv(k,v){ const r=el('div','kv'); r.append(el('span',null,k), el('span',null,String(v))); return r; }
-function money(x){ return x==null?'—':'$'+Number(x).toLocaleString(undefined,{maximumFractionDigits:2}); }
+// ---------------------------------------------------------------- connection
+const params = new URLSearchParams(location.search);
+// A tenant is an address, not a secret: it may be named in the page URL.
+const TENANT = /^[a-z0-9_-]{2,32}$/.test(params.get('tenant') || '') ? params.get('tenant') : '';
 
-async function loadOpinion(body){
-  if(!body) return;
-  const box=document.createElement('div'); box.className='opinion';
-  const head=document.createElement('div'); head.className='ophead';
-  head.append(el('h2',null,'MM opinion'));
-  const btn=el('button',null,'Ask for the opinion'); btn.type='button'; btn.className='opbtn';
-  head.append(btn); box.append(head);
-  const bodyEl=el('div','opbody','Press the button: the model reads this card and answers in two voices — the disciplined analysis, and Mark's, grounded in the cited passages.');
-  box.append(bodyEl); out.append(box);
+function journalId(){
+  // Each browser keeps its own journal under an identifier only it knows.
+  let id = null;
+  try { id = localStorage.getItem('decisiondesk.journal'); } catch (e) { /* storage blocked */ }
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(id || '')) {
+    const bytes = new Uint8Array(12);
+    try { crypto.getRandomValues(bytes); } catch (e) { bytes.fill(1); }
+    id = 'j-' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('') +
+         '-' + Date.now().toString(36);
+    try { localStorage.setItem('decisiondesk.journal', id); } catch (e) { /* kept for this page only */ }
+  }
+  return id;
+}
+const JOURNAL_ID = journalId();
 
-  btn.addEventListener('click', async ()=>{
-    btn.disabled=true; btn.innerHTML='<span class="spin"></span>Thinking…';
-    bodyEl.innerHTML='';
-    try{
-      const r=await fetch('/api/opinion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      const d=await r.json();
-      if(!r.ok){ bodyEl.append(el('p','err', typeof d.detail==='string'?d.detail:JSON.stringify(d.detail))); }
-      else if(d.refused){ bodyEl.append(el('p','warn', d.reason||'No opinion on incomplete data.')); }
-      else{
-        bodyEl.append(kv('Stance', d.stance||'—'));
-        bodyEl.append(el('h3',null,'Analysis')); bodyEl.append(el('p',null,d.analysis||''));
-        bodyEl.append(el('h3',null,"Mark's read")); bodyEl.append(el('p',null,d.mm_opinion||''));
-        bodyEl.append(el('h3',null,'Do they agree?')); bodyEl.append(el('p',null,d.agreement||''));
-        bodyEl.append(el('h3',null,'What would prove this wrong')); bodyEl.append(el('p',null,d.falsifier||''));
-        const cits=(d.citations||[]).filter(c=>c.url);
-        if(cits.length){
-          bodyEl.append(el('h3',null,'His words'));
-          cits.forEach(c=>{
-            const a=document.createElement('a'); a.href=c.url; a.target='_blank'; a.rel='noopener';
-            a.className='cite'; a.textContent=`"${(c.text||'').slice(0,160)}…" — ${c.video_title||c.video_id}, ${c.stamp}`;
-            bodyEl.append(a);
-          });
-        }
-        bodyEl.append(el('p','note','Written by: '+(d.generated_by||'unknown')));
-      }
-    }catch(err){ bodyEl.append(el('p','err','Request failed: '+err.message)); }
-    finally{ btn.disabled=false; btn.textContent='Ask again'; }
-  });
+function url(path){ return TENANT ? path + (path.includes('?') ? '&' : '?') + 'tenant=' + encodeURIComponent(TENANT) : path; }
+
+class ApiError extends Error{
+  constructor(status, detail){ super('request failed'); this.status = status; this.detail = detail; }
+}
+
+async function api(path, options = {}){
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  try{
+    const res = await fetch(url(path), { ...options, signal: controller.signal });
+    const type = res.headers.get('content-type') || '';
+    let body = null;
+    if (type.includes('application/json')){
+      try{ body = await res.json(); }catch (e){ body = null; }
+    }
+    // A gateway error page is HTML, not JSON; say so instead of "Unexpected token <".
+    if (!res.ok) throw new ApiError(res.status, body ? body.detail : 'the server returned ' + res.status);
+    return body;
+  } finally{ clearTimeout(timer); }
+}
+
+function post(path, payload){ return api(path, {method:'POST', body: JSON.stringify(payload)}); }
+
+function explain(err){
+  if (err instanceof ApiError){
+    if (err.status === 429) return 'Too many requests. Wait a minute and try again.';
+    const d = err.detail;
+    if (Array.isArray(d)) return 'Check the form: ' + d.map(x => (x.loc || []).slice(1).join('.') + ' ' + x.msg).join('; ');
+    if (d && typeof d === 'object'){
+      if (d.error === 'no market data') return 'No market data for ' + (d.ticker || 'that ticker') + '. The app does not estimate prices. ' + (d.note || '');
+      return d.note || d.error || 'The request was refused.';
+    }
+    if (err.status >= 500) return 'The server could not complete that. Try again.';
+    return typeof d === 'string' ? d : 'The request was refused.';
+  }
+  return 'Request failed: ' + err.message;
+}
+
+function safeUrl(u){ return typeof u === 'string' && /^https?:\/\//i.test(u) ? u : null; }
+
+// ---------------------------------------------------------------- small builders
+function el(tag, cls, text){ const n = document.createElement(tag); if(cls) n.className = cls; if(text != null) n.textContent = text; return n; }
+function kv(k, v){ const r = el('div','kv'); r.append(el('span',null,k), el('span',null,String(v))); return r; }
+function money(x){ return x == null ? '—' : '$' + Number(x).toLocaleString(undefined, {maximumFractionDigits: 2}); }
+function num(x, places){ return x == null ? '—' : Number(x).toFixed(places); }
+function heading(t){ return el('h2', null, t); }
+function list(items){ const ul = el('ul'); items.forEach(f => ul.append(el('li', null, f))); return ul; }
+function link(text, href){
+  const a = el('a', null, text);
+  if (href){ a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+  return a;
+}
+
+// ---------------------------------------------------------------- one card
+const REFUSALS = {
+  corpus_missing: 'No material is loaded for this lens, so nothing is quoted. The card rests on its general rules.',
+  corpus_unreadable: 'This lens\'s material could not be read, so nothing is quoted.',
+};
+
+function refusalNote(code){
+  if (!code) return 'No indexed passage matched. The lens rests on its general rules, not a specific statement.';
+  if (code.startsWith('vocabulary_absent:')){
+    const term = code.split(':')[1];
+    return 'The word “' + term + '” does not occur anywhere in the material loaded for this lens. That is a limit of the material, not evidence about the author\'s view.';
+  }
+  if (code.startsWith('below_floor')) return 'Passages matched, but all scored below the relevance floor, so none is cited.';
+  return REFUSALS[code] || 'No indexed passage matched. The lens rests on its general rules, not a specific statement.';
+}
+
+function prose(generatedBy){
+  const box = el('div', 'ai');
+  const by = String(generatedBy || '');
+  box.append(el('p', 'note', by.startsWith('deterministic template')
+    ? 'Template — no model wrote this.'
+    : 'AI-written (' + by + '). Check it against the numbers on the card.'));
+  return box;
 }
 
 function render(d){
-  out.innerHTML='';
-  const v = el('div','verdict');
-  v.append(el('span','pill '+d.verdict,d.verdict), el('strong',null,d.instrument), el('span','note',d.mode+' · '+(d.grounding?.as_of||'')));
+  out.innerHTML = '';
+  const lens = d.lens || {};
+  const sl = d.standard_lens || {};
+  const r = d.risk || {};
+  const g = d.grounding || {};
+
+  const v = el('div', 'verdict');
+  v.append(el('span', 'pill ' + d.verdict, d.verdict), el('strong', null, d.instrument));
+  v.append(el('span', 'note', d.mode + ' · last bar ' + (g.price_bar || 'unknown') + ' · fetched ' + String(g.as_of || '').slice(0, 16).replace('T', ' ')));
   out.append(v);
-  out.append(el('p','note', d.verdict_reason||''));
+  out.append(el('p', 'note', 'Rule output, not advice.'));
+  out.append(el('p', null, d.verdict_reason || ''));
+  if (d.mode === 'intraday') out.append(el('div', 'warn', 'Intraday mode ran on daily bars. It is indicative only.'));
 
-  out.append(el('h2',null,'MM lens'));
-  const mm=d.mm_lens||{};
-  out.append(kv('Score', (mm.score_10??'?')+'/10'));
-  out.append(kv('Action', mm.action||'—'));
-  out.append(kv('Position', ((mm.position_pct||0)*100).toFixed(1)+'% of equity'));
-  out.append(kv('Shares', mm.shares??'—'));
-  out.append(kv('Alert', mm.alert||'—'));
-  if(mm.reason) out.append(el('div','warn', mm.reason));
-  if(mm.score_meta?.source) out.append(el('p','note','Score source: '+mm.score_meta.source));
+  out.append(heading((lens.label || 'Reference lens') + ' (proxy score)'));
+  out.append(kv('Score', (lens.score_10 ?? '?') + ' / 10'));
+  if (lens.score_meta && lens.score_meta.source) out.append(el('p', 'note', 'Score source: ' + lens.score_meta.source));
+  out.append(kv('Action', lens.action || '—'));
+  out.append(kv('Position', ((lens.position_pct || 0) * 100).toFixed(1) + '% of equity'));
+  out.append(kv('Shares', lens.shares ?? '—'));
+  out.append(kv('Limited by', lens.capped_by || '—'));
+  if (lens.posture) out.append(el('p', 'note', lens.posture));
+  if (lens.reason) out.append(el('div', 'warn', lens.reason));
 
-  out.append(el('h2',null,'Standard lens'));
-  const sl=d.standard_lens||{};
-  out.append(kv('Read', sl.action||'—'));
-  out.append(kv('Trend score', (sl.trend?.score??'?')+' / 3'));
+  out.append(heading('Standard lens'));
+  out.append(kv('Read', sl.action || '—'));
+  out.append(kv('Trend score', (sl.trend?.score ?? '?') + ' / 3'));
+  out.append(kv('Measures for a long', (sl.charts_supported ?? '?') + ' of ' + (sl.measures_evaluated ?? 3)));
   out.append(kv('Price', money(sl.price)));
-  out.append(kv('Vol 20d (ann.)', sl.volatility_20d_annualised!=null?(sl.volatility_20d_annualised*100).toFixed(1)+'%':'—'));
-  out.append(kv('Vol 60d (ann.)', sl.volatility_60d_annualised!=null?(sl.volatility_60d_annualised*100).toFixed(1)+'%':'—'));
-  out.append(kv('ATR', sl.atr??'—'));
+  out.append(kv('Vol 20d (ann.)', sl.volatility_20d_annualised != null ? (sl.volatility_20d_annualised * 100).toFixed(1) + '%' : '—'));
+  out.append(kv('Vol 60d (ann.)', sl.volatility_60d_annualised != null ? (sl.volatility_60d_annualised * 100).toFixed(1) + '%' : '—'));
+  out.append(kv('ATR', sl.atr ?? '—'));
 
-  out.append(el('h2',null,'Disagreement'));
-  const dis=d.disagreement||{};
-  out.append(el('p',null,dis.summary||'—'));
-  if(dis.tie_break) out.append(el('div','warn',dis.tie_break));
+  const dis = d.disagreement || {};
+  out.append(heading(dis.exists ? 'Disagreement' : 'Agreement'));
+  out.append(el('p', null, dis.summary || '—'));
+  if (dis.tie_break) out.append(el('div', 'warn', dis.tie_break));
 
-  out.append(el('h2',null,'Risk'));
-  const r=d.risk||{};
-  out.append(kv('Invalidation', money(r.invalidation)));
+  out.append(heading('Risk'));
+  out.append(kv('Invalidation (stop)', money(r.invalidation)));
   out.append(kv('First target', money(r.first_target)));
-  out.append(kv('Reward / risk', r.reward_risk??'—'));
-  out.append(kv('Risk at stop', money(r.risk_at_stop)));
+  out.append(kv('Reward / risk after costs', r.reward_risk ?? '—'));
+  if (r.reward_risk_gross != null && r.reward_risk_gross !== r.reward_risk)
+    out.append(kv('Reward / risk before costs', r.reward_risk_gross));
+  out.append(kv('Risk at the stop', money(r.risk_at_stop)));
+  out.append(kv('Risk budget', money(r.risk_budget)));
+  (g.level_notes || []).forEach(n => out.append(el('p', 'note', n)));
 
-  if((d.corpus_hits||[]).length){
-    out.append(el('h2',null,'Cited from the corpus'));
-    d.corpus_hits.forEach(h=>{
-      const p=el('div','cite');
-      const a=el('a',null,'['+h.stamp+']'); a.href=h.url; a.target='_blank'; a.rel='noopener';
-      p.append(a, document.createTextNode(' '+(h.text||'').slice(0,260)+'…'));
-      const t=el('div','note',(h.video_title||'').slice(0,70)); p.append(t);
+  out.append(heading('From the material of ' + (lens.label || 'this lens')));
+  const hits = d.corpus_hits || [];
+  if (hits.length){
+    out.append(el('p', 'note', 'Keyword matches — relevance is not verified. These are passages that matched, not the author\'s answer.'));
+    hits.forEach(h => {
+      const p = el('div', 'cite');
+      p.append(link('[' + (h.synthetic ? 'note' : h.stamp) + ']', safeUrl(h.url)));
+      p.append(document.createTextNode(' ' + (h.text || '')));
+      const t = el('div', 'note', (h.video_title || '') + (h.synthetic ? ' (notes: placeholder timestamp)' : ''));
+      p.append(t);
       out.append(p);
     });
   } else {
-    out.append(el('h2',null,'Cited from the corpus'));
-    const why = d.corpus_refusal || '';
-    if(why.startsWith('vocabulary_absent:')){
-      const term = why.split(':')[1];
-      out.append(el('p','warn','The word “'+term+'” never appears in the 35 hours transcribed so far. That is not evidence he never said it — it is outside what this corpus holds.'));
-    } else if(why.startsWith('below_floor')){
-      out.append(el('p','warn','Passages matched, but all scored below the calibrated relevance floor, so none is cited as his view.'));
-    } else {
-      out.append(el('p','note','No indexed passage matched. The MM lens rests on his general rules, not a specific statement.'));
-    }
+    out.append(el('p', d.corpus_refusal === 'corpus_missing' ? 'note' : 'warn', refusalNote(d.corpus_refusal)));
   }
 
-  if((d.falsifiers||[]).length){
-    out.append(el('h2',null,'What would prove this wrong'));
-    const ul=el('ul'); d.falsifiers.forEach(f=>ul.append(el('li',null,f))); out.append(ul);
+  if ((d.falsifiers || []).length){
+    out.append(heading('What would prove this wrong'));
+    out.append(list(d.falsifiers));
   }
+  if (g.missing && g.missing.length) out.append(el('div', 'warn', 'Incomplete data: ' + g.missing.join(', ')));
 
-  if(d.grounding?.missing?.length) out.append(el('div','warn','Incomplete data: '+d.grounding.missing.join(', ')));
-  const n=d.narrative||{};
-  out.append(el('h2',null,"MM's take"));
-  if(n.mm_narrative) out.append(el('p',null,n.mm_narrative));
-  if(n.standard_narrative) out.append(el('p',null,'Conventional read: '+n.standard_narrative));
-  if(n.disagreement) out.append(el('p','warn','Where they disagree: '+n.disagreement));
-  if(n.caveat) out.append(el('p','note','Biggest risk to this call: '+n.caveat));
-  out.append(el('p','note','Written by: '+(n.generated_by||'deterministic template')));
-  out.append(el('p','note', d.disclaimer||''));
+  const n = d.narrative || {};
+  out.append(heading('Narrative'));
+  const box = prose(n.generated_by);
+  if (n.lens_narrative) box.append(el('p', null, n.lens_narrative));
+  if (n.standard_narrative) box.append(el('p', null, n.standard_narrative));
+  if (n.disagreement) box.append(el('p', null, 'Where they disagree: ' + n.disagreement));
+  if (n.caveat) box.append(el('p', null, 'Biggest risk to this call: ' + n.caveat));
+  out.append(box);
+
+  if (d.attribution) out.append(el('p', 'note', d.attribution));
+  out.append(el('p', 'note', d.disclaimer || ''));
+  out.focus();
 }
 
-let rec=null, chunks=[], stream=null;
+function renderCrowd(d){
+  out.append(heading('The crowd (synthetic)'));
+  out.append(el('p', 'warn', d.label));
+  out.append(el('p', 'note', (d.agents || 6) + ' rule-based styles · modal ' + d.modal_stance + ' · dispersion ' + d.dispersion));
+  const wrap = el('div');
+  (d.views || []).forEach(v => {
+    const row = el('div', 'kv');
+    row.append(el('span', null, v.persona + ' · ' + v.stance));
+    row.append(el('span', null, v.reason));
+    wrap.append(row);
+  });
+  out.append(wrap);
+  out.append(el('p', 'note', (d.what_this_is_not || []).join(' · ')));
+}
+
+function renderOpinion(body){
+  const box = el('div', 'opinion');
+  const head = el('div', 'ophead');
+  head.append(heading('Second opinion'));
+  const btn = el('button', 'secondary opbtn', 'Ask for a second opinion');
+  btn.type = 'button';
+  head.append(btn);
+  box.append(head);
+  const bodyEl = el('div', 'opbody');
+  const llm = HEALTH.llm || {};
+  bodyEl.append(el('p', 'note', llm.configured && llm.cloud_enabled
+    ? 'When you ask, this card is sent to the configured model provider.'
+    : 'No model is configured on this host, so you get a deterministic reading, labelled as such.'));
+  box.append(bodyEl);
+  out.append(box);
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = 'Thinking…';
+    bodyEl.innerHTML = '';
+    try{
+      const d = await post('/api/opinion', lastBody);
+      if (d.refused){ bodyEl.append(el('p', 'warn', d.reason || 'No opinion on incomplete data.')); return; }
+      bodyEl.append(kv('Stance', d.stance || '—'));
+      const by = String(d.generated_by || '');
+      const note = el('p', 'note', by.startsWith('deterministic template')
+        ? 'Template — no model wrote this.'
+        : 'AI-written (' + by + ').');
+      bodyEl.append(note, heading('Analysis'), el('p', null, d.analysis || ''));
+      bodyEl.append(heading('Lens reading (model-written from the cited passages, not the author\'s words)'));
+      bodyEl.append(el('p', null, d.lens_opinion || ''));
+      bodyEl.append(heading('Do the voices agree?'), el('p', null, d.agreement || ''));
+      bodyEl.append(heading('What would prove this wrong'), el('p', null, d.falsifier || ''));
+      const cits = (d.citations || []).filter(c => safeUrl(c.url));
+      if (cits.length){
+        bodyEl.append(heading('Passages that matched (keyword match, relevance not verified)'));
+        cits.forEach(c => bodyEl.append(link('[' + (c.synthetic ? 'note' : c.stamp) + '] ' + (c.video_title || c.video_id), safeUrl(c.url))));
+      }
+    }catch (err){ bodyEl.append(el('p', 'err', explain(err))); }
+    finally{ btn.disabled = false; btn.textContent = 'Ask again'; }
+  });
+}
+
+// ---------------------------------------------------------------- journal
+async function loadJournal(){
+  try{
+    const d = await api('/api/journal');
+    const notes = [];
+    if (d.persistent === false) notes.push('Entries on this host are temporary: they disappear when the server restarts.');
+    if (d.damaged_lines) notes.push(d.damaged_lines + ' unreadable line(s) were set aside.');
+    $('#jsummary').textContent = d.count ? (d.count + ' entr' + (d.count === 1 ? 'y' : 'ies') + ' in this browser · horizons 30/90/180/365 days' + (notes.length ? ' · ' + notes.join(' ') : ''))
+                                         : ('No entries yet in this browser. Run an analysis and it is recorded here.' + (notes.length ? ' · ' + notes.join(' ') : ''));
+    $('#jlist').innerHTML = '';
+    d.entries.slice(-8).reverse().forEach(e => {
+      const row = el('div', 'kv');
+      row.append(el('span', null, String(e.created_at).slice(0, 10) + ' · ' + e.instrument + ' · ' + e.verdict));
+      const graded = Object.keys(e.outcomes || {}).length;
+      row.append(el('span', null, graded ? graded + ' horizon(s) graded' : 'not graded yet'));
+      $('#jlist').append(row);
+    });
+    $('#grade').disabled = !d.count;
+  }catch (err){
+    $('#jsummary').textContent = err instanceof ApiError && err.status === 403
+      ? 'The journal on this host is private. Analyses still run; their record is not shown here.'
+      : 'Journal unavailable: ' + explain(err);
+    $('#jlist').innerHTML = '';
+    $('#grade').disabled = true;
+  }
+}
+
+$('#grade').addEventListener('click', async () => {
+  const btn = $('#grade');
+  btn.disabled = true;
+  $('#jsummary').textContent = 'Fetching split-adjusted bars and simulating stops…';
+  try{
+    const d = await api('/api/journal/grade', {method: 'POST'});
+    const s = d.summary || {};
+    const parts = Object.entries(s).map(([h, v]) => h + 'd: ' + v.n + ' call' + (v.n === 1 ? '' : 's') + ', ' +
+      (v.hit_target_rate == null ? '—' : (v.hit_target_rate * 100).toFixed(0) + '% hit target') + ', ' +
+      (v.stopped_rate == null ? '—' : (v.stopped_rate * 100).toFixed(0) + '% stopped'));
+    const excluded = Object.values(s).reduce((n, v) => n + (v.excluded ? v.excluded.no_position + v.excluded.corporate_action_flags : 0), 0);
+    $('#jsummary').textContent = d.graded
+      ? 'Graded ' + d.graded + ' entries. ' + parts.join(' · ') + (excluded ? ' · ' + excluded + ' excluded (no position, or a suspected corporate action)' : '')
+      : 'Nothing to grade yet. ' + (d.note || 'No horizon has closed since these calls were made.');
+    loadJournal();
+  }catch (err){ $('#jsummary').textContent = 'Grade failed: ' + explain(err); }
+  finally{ btn.disabled = false; }
+});
+
+// ---------------------------------------------------------------- voice (only where the models are)
+let rec = null, chunks = [], stream = null;
 
 async function startRec(){
-  if(!navigator.mediaDevices?.getUserMedia){ $('#vnote').textContent='This browser cannot record audio.'; return; }
-  stream = await navigator.mediaDevices.getUserMedia({audio:true});
-  chunks=[];
+  if(!navigator.mediaDevices?.getUserMedia){ $('#vnote').textContent = 'This browser cannot record audio.'; return; }
+  stream = await navigator.mediaDevices.getUserMedia({audio: true});
+  chunks = [];
   const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
-  rec = new MediaRecorder(stream, mime?{mimeType:mime}:undefined);
+  rec = new MediaRecorder(stream, mime ? {mimeType: mime} : undefined);
   rec.ondataavailable = e => { if(e.data.size) chunks.push(e.data); };
   rec.onstop = sendVoice;
   rec.start();
-  $('#mic').textContent='⏹ Stop and ask';
-  $('#mic').style.background='#5a1d1d';
-  $('#vnote').textContent='Listening… speak your question.';
+  $('#mic').textContent = 'Stop and ask';
+  $('#mic').setAttribute('aria-pressed', 'true');
+  $('#vnote').textContent = 'Listening… click again when you have asked your question.';
 }
 
 function stopRec(){
-  if(rec && rec.state==='recording'){ rec.stop(); }
-  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-  $('#mic').textContent='🎤 Hold to talk';
-  $('#mic').style.background='#21262d';
+  if(rec && rec.state === 'recording') rec.stop();
+  if(stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+  $('#mic').textContent = 'Record a question';
+  $('#mic').setAttribute('aria-pressed', 'false');
 }
 
 async function sendVoice(){
-  $('#vnote').textContent='Transcribing locally…';
+  const mic = $('#mic');
+  mic.disabled = true;
+  $('#vnote').textContent = 'Transcribing…';
   const blob = new Blob(chunks, {type: chunks[0]?.type || 'audio/webm'});
   const fd = new FormData();
   fd.append('audio', blob, 'clip.webm');
   fd.append('account_equity', $('#equity').value);
-  fd.append('risk_pct', String(Number($('#risk').value)/100));
+  fd.append('risk_pct', String(Number($('#risk').value) / 100));
   fd.append('alert', $('#alert').value);
   try{
-    const res = await fetch('/api/voice', {method:'POST', body:fd});
-    const d = await res.json();
-    if(!res.ok){
-      $('#vnote').textContent = 'Voice unavailable: ' + (typeof d.detail==='string'?d.detail:JSON.stringify(d.detail));
-      return;
-    }
+    const res = await fetch(url('/api/voice'), {method: 'POST', body: fd, headers: {'X-Journal-Id': JOURNAL_ID},
+                                      signal: AbortSignal.timeout ? AbortSignal.timeout(90000) : undefined});
+    let d = null;
+    try{ d = await res.json(); }catch (e){ d = null; }
+    if(!res.ok){ $('#vnote').textContent = 'Voice unavailable: ' + explain(new ApiError(res.status, d ? d.detail : null)); return; }
     $('#q').value = d.transcript || '';
     if(d.ticker) $('#ticker').value = d.ticker;
-    $('#vnote').textContent = 'Heard: “' + (d.transcript||'') + '”';
+    $('#vnote').textContent = 'Heard: “' + (d.transcript || '') + '”';
+    lastBody = {question: d.transcript || '', ticker: d.ticker || $('#ticker').value};
     render(d);
     if(d.audio_b64){
-      const audio = new Audio('data:'+(d.audio_mime||'audio/wav')+';base64,'+d.audio_b64);
-      audio.play().catch(()=>{});
+      const audio = new Audio('data:' + (d.audio_mime || 'audio/wav') + ';base64,' + d.audio_b64);
+      audio.play().catch(() => {});
     }
-  }catch(err){ $('#vnote').textContent='Voice request failed: '+err.message; }
+  }catch (err){ $('#vnote').textContent = 'Voice request failed: ' + explain(err); }
+  finally{ mic.disabled = false; }
 }
 
-async function loadJournal(keepSummary){
-  try{
-    const res = await fetch('/api/journal'); const d = await res.json();
-    if(!keepSummary) $('#jsummary').textContent = d.count ? (d.count+' entries · horizons 30/90/180/365 days') : 'No entries yet — run an analysis and it is written here automatically.';
-    $('#jlist').innerHTML='';
-    (d.entries||[]).slice(-8).reverse().forEach(e=>{
-      const row=el('div','kv');
-      row.append(el('span',null, e.created_at.slice(0,10)+' · '+e.instrument+' · '+e.verdict));
-      const graded = Object.keys(e.outcomes||{}).length;
-      row.append(el('span',null, graded? graded+' horizon(s) graded' : 'not graded yet'));
-      $('#jlist').append(row);
-    });
-  }catch(err){ $('#jsummary').textContent='Journal unavailable: '+err.message; }
-}
+// ---------------------------------------------------------------- the form
+let lastBody = null;
+let HEALTH = {llm: {}};
 
-$('#grade').addEventListener('click', async ()=>{
-  $('#grade').disabled=true; $('#jsummary').textContent='Fetching split-adjusted bars and simulating stops…';
-  try{
-    const res=await fetch('/api/journal/grade',{method:'POST'}); const d=await res.json();
-    if(!res.ok){ $('#jsummary').textContent='Grade failed: '+JSON.stringify(d.detail||d); return; }
-    const s=d.summary||{}; const k=Object.keys(s)[0];
-    $('#jsummary').textContent = d.graded
-      ? 'Graded '+d.graded+' entries. '+Object.entries(s).map(([h,v])=>h+'d: '+v.n+' calls, '+(v.hit_target_rate*100).toFixed(0)+'% hit target, '+(v.stopped_rate*100).toFixed(0)+'% stopped').join(' · ')
-      : 'Nothing to grade yet — '+(d.note || 'every entry was made today, so no 30/90/180/365-day horizon has closed.');
-    loadJournal(true);
-  }catch(err){ $('#jsummary').textContent='Grade failed: '+err.message; }
-  finally{ $('#grade').disabled=false; }
-});
+function number(id){ const v = $(id).value.trim(); return v === '' ? null : Number(v); }
 
-$('#mic').addEventListener('click', ()=>{ rec && rec.state==='recording' ? stopRec() : startRec().catch(e=>{$('#vnote').textContent='Microphone blocked: '+e.message;}); });
-
-async function loadCrowd(ticker){
-  try{
-    const res = await fetch('/api/scenario',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ticker})});
-    const d = await res.json();
-    if(!res.ok) return;
-    out.append(el('h2',null,'The crowd (synthetic)'));
-    out.append(el('p','note', (d.agents||6)+' rule-based styles · modal '+d.modal_stance+
-      ' · dispersion '+d.dispersion));
-    const wrap=el('div');
-    d.views.forEach(v=>{
-      const row=el('div','kv');
-      row.append(el('span',null, v.persona+' · '+v.stance));
-      row.append(el('span',null, v.reason));
-      wrap.append(row);
-    });
-    out.append(wrap);
-    out.append(el('p','note', d.label));
-  }catch(err){ /* the card stands on its own if this fails */ }
-}
-
-let lastBody=null;
-
-$('#form').addEventListener('submit', async e=>{
+$('#form').addEventListener('submit', async e => {
   e.preventDefault();
-  const btn=$('#go'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Analysing…';
-  out.innerHTML='';
-  const body={
-    question:$('#q').value, ticker:$('#ticker').value.trim().toUpperCase(),
-    account_equity:Number($('#equity').value), risk_pct:Number($('#risk').value)/100,
-    alert:$('#alert').value, mode:$('#mode').value,
-    cash_pct: $('#cash').value==='' ? null : Number($('#cash').value)/100
+  const btn = $('#go');
+  btn.disabled = true; btn.textContent = 'Analysing…';
+  out.innerHTML = '';
+  const body = {
+    question: $('#q').value, ticker: $('#ticker').value.trim().toUpperCase(),
+    account_equity: Number($('#equity').value), risk_pct: Number($('#risk').value) / 100,
+    alert: $('#alert').value, mode: $('#mode').value,
+    cash_pct: number('#cash') == null ? null : number('#cash') / 100,
+    support: number('#support'), target: number('#target'),
+    green_line: number('#green'), red_line: number('#red'),
   };
   try{
-    const res=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const d=await res.json();
-    if(!res.ok){ out.append(el('p','err', typeof d.detail==='string'?d.detail:JSON.stringify(d.detail,null,2))); }
-    else { lastBody=body; render(d); loadCrowd(body.ticker); loadOpinion(body); }
-  }catch(err){ out.append(el('p','err','Request failed: '+err.message)); }
-  finally{ btn.disabled=false; btn.textContent='Analyse'; }
+    const d = await post('/api/analyze', body);
+    lastBody = body;
+    render(d);
+    post('/api/scenario', {ticker: body.ticker}).then(renderCrowd).catch(() => {});
+    renderOpinion(body);
+    loadJournal();
+  }catch (err){ out.append(el('p', 'err', explain(err))); }
+  finally{ btn.disabled = false; btn.textContent = 'Analyse'; }
 });
-loadJournal();
+
+// ---------------------------------------------------------------- start-up
+(async () => {
+  try{
+    HEALTH = await api('/health');
+    const v = HEALTH.voice || {};
+    const here = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    if(v.stt && v.stt.audio_supported && v.tts && v.tts.model_present){
+      $('#voicebox').hidden = false;
+      $('#vnote').textContent = here
+        ? 'Your recording is transcribed and answered on this machine. No audio leaves it.'
+        : 'Your recording is sent to this server, which transcribes and answers it there. No cloud model is involved.';
+      $('#mic').addEventListener('click', () => {
+        rec && rec.state === 'recording' ? stopRec() : startRec().catch(e => { $('#vnote').textContent = 'Microphone unavailable: ' + e.message; });
+      });
+    }
+    try{
+      const t = await api('/api/tenants/' + (TENANT || 'default'));
+      $('#tag').textContent = t.lens_label ? 'risk/reward decision support · ' + t.lens_label : 'risk/reward decision support';
+      if(t.attribution){
+        $('#notice').append(' ' + t.attribution);
+        $('#foot').append(' ' + t.attribution);
+      }
+    }catch (err){
+      if(err instanceof ApiError && err.status === 404){
+        $('#tag').textContent = 'unknown tenant';
+        $('#notice').append(' This page names a tenant that does not exist on this host.');
+        $('#go').disabled = true;
+      }
+    }
+  }catch (err){ $('#tag').textContent = 'risk/reward decision support (server unreachable)'; }
+  loadJournal();
+})();
 </script>
 </body>
 </html>
