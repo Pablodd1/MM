@@ -5,7 +5,7 @@ pointing MMDESK_LLM_BASE at this server means the fine-tune drops into the MM Op
 no code change. That also keeps the local model and the hosted model interchangeable — which is
 what makes "host it later" a deployment decision rather than a rewrite.
 
-    trainenv/Scripts/python.exe scripts/serve_adapter.py --port 8899
+    trainenv/Scripts/python.exe legacy/serve_adapter.py --port 8899
     MMDESK_LLM_KEY=local MMDESK_LLM_BASE=http://127.0.0.1:8899/v1 MMDESK_LLM_MODEL=mm-decision-3b
 
 Not for public exposure: no auth, no rate limiting, single request at a time.
