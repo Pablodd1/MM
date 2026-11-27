@@ -1,9 +1,12 @@
-"""Retrieval over the MM corpus: BM25 with provenance, plus a refusal path.
+"""BM25 retrieval with provenance, plus a refusal path.
 
-The contract: `search()` either returns passages with citations, or returns an
-empty list. An empty list is a valid and important answer — it means he has not
-addressed the question in the material we hold, and the app must say exactly that
-rather than letting the language model fill the silence.
+The contract: `search()` either returns passages with citations, or returns an empty list.
+An empty list is a valid and important answer — it means the loaded material does not cover
+the question, and the app must say exactly that (`last_refusal`) rather than letting a
+language model fill the silence.
+
+Indexes are built by `scripts/ingest_corpus.py` with the same `tokens()` used here, so a
+question and a passage are always tokenised the same way.
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import threading
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,8 +38,18 @@ what about""".split())
 
 
 def tokens(text: str) -> list[str]:
-    return [w.strip(".-") for w in WORD_RE.findall(text.lower())
-            if len(w.strip(".-")) >= 2 and w not in STOP]
+    """Content words, with punctuation stripped before the stop-word test.
+
+    "now." has to be recognised as the stop word "now". Testing the unstripped match let every
+    stop word that happened to end a sentence into queries, where it could also trip the
+    vocabulary gate and refuse a question the material does answer.
+    """
+    out: list[str] = []
+    for raw in WORD_RE.findall(text.lower()):
+        word = raw.strip(".-")
+        if len(word) >= 2 and word not in STOP:
+            out.append(word)
+    return out
 
 
 @dataclass
@@ -48,22 +62,33 @@ class Hit:
     url: str
     text: str
     score: float
+    synthetic: bool = False    # a note with a placeholder stamp, not a position in a recording
 
 
 class Corpus:
-    last_refusal: str | None = None
+    """One tenant's index. `last_refusal` is kept per thread: two requests in flight at once
+    must not read each other's reason for refusing."""
 
     def __init__(self, index_path: Path = INDEX) -> None:
         if not index_path.exists():
             raise FileNotFoundError(
-                f"{index_path} missing — run build_index.py after transcribing"
+                f"{index_path} missing — run scripts/ingest_corpus.py first"
             )
+        self._local = threading.local()
         self.rows: list[dict] = []
         df: Counter[str] = Counter()
         total_len = 0
         with index_path.open(encoding="utf-8") as fh:
-            for line in fh:
-                row = json.loads(line)
+            for number, line in enumerate(fh, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError as exc:
+                    raise ValueError(f"{index_path}: line {number} is not JSON") from exc
+                # An index written without term maps still loads; the map is rebuilt from the text.
+                if "tf" not in row:
+                    row["tf"] = dict(Counter(tokens(str(row.get("text", "")))))
                 row["len"] = sum(row["tf"].values())
                 total_len += row["len"]
                 for term in row["tf"]:
@@ -73,21 +98,35 @@ class Corpus:
         self.avgdl = total_len / self.n if self.n else 0.0
         self.df = df
 
+    @property
+    def last_refusal(self) -> str | None:
+        return getattr(self._local, "refusal", None)
+
+    @last_refusal.setter
+    def last_refusal(self, value: str | None) -> None:
+        self._local.refusal = value
+
+    def _df(self, term: str) -> int:
+        # "$AAPL" is indexed as "$aapl"; a bare "AAPL" should still find it.
+        return self.df.get(term, 0) + self.df.get("$" + term, 0)
+
     def idf(self, term: str) -> float:
-        df = self.df.get(term, 0)
+        df = self._df(term)
         return math.log(1 + (self.n - df + 0.5) / (df + 0.5))
 
     def absent_topic(self, query: str) -> str | None:
-        """The query's most specific word, if it never occurs in any transcript.
+        """The query's most specific word, if it never occurs in the loaded material.
 
         If the rarest content word of a question has document frequency zero, the question is
-        about something the corpus does not contain — that is checkable, unlike "BM25 felt low".
+        about something the material does not contain — that is checkable, unlike "BM25 felt
+        low". It is a check on the word, not the topic: inflections ("bought" for "buy") and
+        synonyms are not matched.
         """
         terms = [t for t in tokens(query) if len(t) >= 3]
         if not terms:
             return None
-        rarest = min(terms, key=lambda t: self.df.get(t, 0))
-        return rarest if self.df.get(rarest, 0) == 0 else None
+        rarest = min(terms, key=self._df)
+        return rarest if self._df(rarest) == 0 else None
 
     def search(self, query: str, k: int = 6, min_score: float = DEFAULT_MIN_SCORE,
                apply_gate: bool = True) -> list[Hit]:
@@ -108,7 +147,7 @@ class Corpus:
         for row in self.rows:
             s = 0.0
             for term, qn in q_tf.items():
-                f = row["tf"].get(term)
+                f = row["tf"].get(term, 0) + row["tf"].get("$" + term, 0)
                 if not f:
                     continue
                 norm = f * (k1 + 1) / (f + k1 * (1 - b + b * row["len"] / self.avgdl))
@@ -125,10 +164,11 @@ class Corpus:
         scored.sort(key=lambda x: -x[0])
         hits = [
             Hit(r["id"], r["video_id"], r["video_title"], r["start_s"], r["stamp"],
-                r["url"], r["text"], round(s, 2))
+                r["url"], r["text"], round(s, 2), bool(r.get("synthetic")))
             for s, r in scored[:k]
         ]
-        # Refusal rule: below the calibrated floor, the passage is not citable as his view.
+        # Refusal rule: below the calibrated floor, the passage is not citable as the
+        # material's view.
         if not hits:
             self.last_refusal = "no lexical match"
             return []

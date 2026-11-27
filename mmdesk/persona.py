@@ -21,10 +21,25 @@ SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 WORD_RE = re.compile(r"[A-Za-z0-9$][A-Za-z0-9$'\-]*")
 NUMBER_RE = re.compile(r"\d[\d,]*\.?\d*")
 
+# What the lens says when it will not quote. Each sentence states a fact about the material
+# that was loaded, never a fact about the author's opinion.
+NO_MATERIAL = (
+    "No material is loaded for this lens, so there is nothing to quote. The card rests on its "
+    "general rules."
+)
+WORD_ABSENT = (
+    "The word “{word}” does not occur anywhere in the material loaded for this lens, so there "
+    "is nothing to quote. That is a limit of the material, not a statement about the author's view."
+)
+NO_MATCH = (
+    "No passage in the supplied material matched this closely enough to quote. The material "
+    "covers part of the subject, so silence here is not evidence of the author's opinion."
+)
+
 
 @dataclass
 class Utterance:
-    """One attributed statement: his words, his timestamp, no paraphrase."""
+    """One attributed statement: the author's words, the author's timestamp, no paraphrase."""
     question: str
     quote: str
     video_id: str
@@ -93,28 +108,30 @@ def best_span(passage: str, question: str) -> str:
         joined = sentences[i] + " " + sentences[i + 1]
         if len(joined) >= 30:
             candidates.append((joined, i))
+    if not candidates:
+        # A passage made only of short sentences is still quotable, as a whole.
+        return passage.strip()
     best_text, _ = max(candidates, key=lambda c: score(c[0]))
     return best_text.strip()
 
 
-def speak(question: str, hits: list[dict]) -> Utterance:
-    """Return an attributed utterance, or a labelled refusal. Never a guess."""
+def speak(question: str, hits: list[dict], tenant_id: str | None = None) -> Utterance:
+    """Return an attributed utterance, or a labelled refusal. Never a guess.
+
+    `tenant_id` selects whose material is being asked about. Without it the refusal reason is
+    read from the default tenant's index, which is the wrong material for everyone else.
+    """
     if not hits:
         from .retrieval_shim import refusal_reason
 
-        reason = refusal_reason() or "no lexical match"
+        reason = refusal_reason(tenant_id) or "no lexical match"
         if reason.startswith("vocabulary_absent:"):
             word = reason.split(":", 1)[1]
-            text = (
-                f"He does not use the word “{word}” anywhere in the material transcribed so far, "
-                "so there is nothing of the author's to quote. That is a limit of the corpus, not a "
-                "statement about the author's view."
-            )
+            text = WORD_ABSENT.format(word=word)
+        elif reason == "corpus_missing":
+            text = NO_MATERIAL
         else:
-            text = (
-                "No passage in the supplied material matched this closely enough to quote. The material covers "
-                "part of the subject, so silence here is not evidence of the author's opinion."
-            )
+            text = NO_MATCH
         return Utterance(
             question=question, quote=text, video_id="", video_title="", stamp="", url="",
             score=0.0, refused=True, refusal_reason=reason, note=text,

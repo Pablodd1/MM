@@ -1,13 +1,15 @@
-"""Authoret data grounding.
+"""Market data grounding.
 
 Every number the app acts on comes from here, with a provider name and the time
-it was fetched. If a provider fails, the field goes into `missing` and the card is
-marked INCOMPLETE — the app never fills a gap with an estimate, a memory or a
-round number.
+it was fetched. If a provider fails, the field goes into `missing` and the card says
+so — the app never fills a gap with an estimate, a memory or a round number.
 """
 
 from __future__ import annotations
 
+import logging
+import math
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -15,7 +17,17 @@ from typing import Any, Protocol
 
 from .standard import Bars
 
-CACHE_TTL_S = 300  # five minutes: enough for repeated questions, short enough to stay honest
+log = logging.getLogger("mmdesk.data")
+
+CACHE_TTL_S = 300     # five minutes: enough for repeated questions, short enough to stay honest
+CACHE_MAX_ENTRIES = 64
+REQUEST_TIMEOUT_S = 10
+
+# One cache per process for the default provider. A new Grounder used to be built for every
+# request, each with its own empty cache, so the TTL never hit and the same bars were downloaded
+# again for the analysis, the crowd and the second opinion of one question.
+_SHARED_CACHE: dict[str, tuple[float, "Grounding"]] = {}
+_SHARED_LOCK = threading.Lock()
 
 
 @dataclass
@@ -27,6 +39,7 @@ class Grounding:
     sources: list[dict[str, Any]] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    last_bar: str | None = None     # date of the bar whose close is the current price
 
     @property
     def complete(self) -> bool:
@@ -53,6 +66,15 @@ class Provider(Protocol):
     def fundamentals(self, ticker: str) -> tuple[dict, dict]: ...
 
 
+def _clean(value: object) -> float | None:
+    """A provider's NaN or None is a missing bar, not a number to average in."""
+    try:
+        x = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) and x > 0 else None
+
+
 class YFinanceProvider:
     """Free, no-key provider. Good for swing analysis; cannot support intraday."""
 
@@ -62,22 +84,30 @@ class YFinanceProvider:
         import yfinance as yf
 
         t = yf.Ticker(ticker)
-        hist = t.history(period="2y", interval="1d", auto_adjust=True)
+        hist = t.history(period="2y", interval="1d", auto_adjust=True,
+                         timeout=REQUEST_TIMEOUT_S)
         if hist is None or hist.empty:
             raise RuntimeError(f"no daily bars for {ticker}")
-        closes = [float(x) for x in hist["Close"].tolist()]
+        rows = []
+        for index, row in zip(hist.index, hist.itertuples(index=False), strict=True):
+            open_, high, low, close = (_clean(v) for v in (row.Open, row.High, row.Low, row.Close))
+            if close is None:
+                continue
+            rows.append((str(index.date()), open_ or close, high or close, low or close, close))
+        if len(rows) < 2:
+            raise RuntimeError(f"only {len(rows)} usable daily bars for {ticker}")
+        dates, opens, highs, lows, closes = (list(column) for column in zip(*rows))
         return (
             Bars(
                 close=closes,
-                high=[float(x) for x in hist["High"].tolist()],
-                low=[float(x) for x in hist["Low"].tolist()],
-                volume=[float(x) for x in hist["Volume"].tolist()],
+                high=highs,
+                low=lows,
                 source=self.name,
-                open=[float(x) for x in hist["Open"].tolist()],
-                dates=[str(d.date()) for d in hist.index],
+                open=opens,
+                dates=dates,
             ),
             {"field": "daily_bars", "provider": self.name, "rows": len(closes),
-             "last_bar": str(hist.index[-1].date())},
+             "last_bar": dates[-1]},
         )
 
     def fundamentals(self, ticker: str) -> tuple[dict, dict]:
@@ -92,6 +122,8 @@ class YFinanceProvider:
             "market_cap": info.get("marketCap"),
             "sector": info.get("sector"),
             "industry": info.get("industry"),
+            # The provider's timestamp is the most recent report, not the next one, so between
+            # reports this reads as "just reported". Known limitation, not a forecast.
             "earnings_date": info.get("earningsTimestamp"),
             "dividend_yield": info.get("dividendYield"),
         }
@@ -100,24 +132,35 @@ class YFinanceProvider:
 
 
 class Grounder:
-    def __init__(self, provider: Provider | None = None) -> None:
+    def __init__(self, provider: Provider | None = None, ttl: float | None = None) -> None:
         self.provider = provider or YFinanceProvider()
-        self._cache: dict[str, tuple[float, Grounding]] = {}
+        self.ttl = CACHE_TTL_S if ttl is None else ttl
+        # A caller that injects a provider gets a private cache, so two tests with two stub
+        # providers for the same ticker cannot read each other's grounding.
+        self._cache: dict[str, tuple[float, Grounding]] = (
+            {} if provider is not None else _SHARED_CACHE
+        )
+        self._lock = threading.Lock() if provider is not None else _SHARED_LOCK
 
     def ground(self, ticker: str, fundamentals: bool = True) -> Grounding:
         key = f"{ticker.upper()}:{fundamentals}"
-        cached = self._cache.get(key)
-        if cached and time.time() - cached[0] < CACHE_TTL_S:
-            return cached[1]
+        now = time.time()
+        with self._lock:
+            cached = self._cache.get(key)
+            if cached and now - cached[0] < self.ttl:
+                return cached[1]
 
-        g = Grounding(ticker=ticker.upper(), as_of=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        g = Grounding(ticker=ticker.upper(),
+                      as_of=datetime.now(timezone.utc).isoformat(timespec="seconds"))
         try:
             bars, src = self.provider.daily_bars(ticker)
             g.bars = bars
+            g.last_bar = src.get("last_bar")
             g.sources.append(src)
         except Exception as exc:  # noqa: BLE001 - failure is data, not a crash
             g.missing.append("price")
             g.errors.append(f"{self.provider.name}: {exc}")
+            log.warning("daily bars for %s failed: %s", ticker, exc)
 
         if fundamentals:
             try:
@@ -129,8 +172,14 @@ class Grounder:
             except Exception as exc:  # noqa: BLE001
                 g.missing.append("fundamentals")
                 g.errors.append(f"{self.provider.name}: {exc}")
+                log.warning("fundamentals for %s failed: %s", ticker, exc)
 
-        self._cache[key] = (time.time(), g)
+        with self._lock:
+            if len(self._cache) >= CACHE_MAX_ENTRIES:
+                oldest = min(self._cache, key=lambda k: self._cache[k][0], default=None)
+                if oldest is not None:
+                    del self._cache[oldest]
+            self._cache[key] = (now, g)
         return g
 
 
