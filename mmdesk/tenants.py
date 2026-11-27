@@ -52,11 +52,26 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _data_root() -> Path:
+    """Where writable state lives.
+
+    A serverless bundle is read-only except for a per-instance temp dir, so the registry has to
+    follow the same rule as the journal — otherwise the first request on a deployment raises
+    "attempt to write a readonly database" instead of answering.
+    """
+    override = os.getenv("MMDESK_DATA_DIR")
+    if override:
+        return Path(override)
+    if os.getenv("VERCEL"):
+        return Path("/tmp/mmdesk")
+    return ROOT / "data"
+
+
 def db_path() -> Path:
     override = os.getenv("MMDESK_DB")
     if override:
         return Path(override)
-    return Path(os.getenv("MMDESK_DATA_DIR", str(ROOT / "data"))) / "desk.db"
+    return _data_root() / "desk.db"
 
 
 def persistent() -> bool:
@@ -106,7 +121,7 @@ class Tenant:
         return a if a.get("status") == "active" and a.get("path") else None
 
     def journal_path(self) -> Path:
-        base = Path(os.getenv("MMDESK_DATA_DIR", str(ROOT / "data"))) / "journal"
+        base = _data_root() / "journal"
         base.mkdir(parents=True, exist_ok=True)
         return base / f"{self.id}.jsonl"
 
