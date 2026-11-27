@@ -2,13 +2,14 @@
 
 Design constraint that shapes everything here: the model NEVER produces a number. The card's
 figures are computed by the deterministic layer and passed in as context; the model returns only
-prose and a stance word. A response containing any numeral is rejected and redone; a second failure
+prose and a stance word. A response containing any numeral anywhere is redone; a second failure
 returns a labelled template instead of pretending a model wrote it.
 
 Two ways to serve Layer 2, same interface:
 
 * a tenant's **own adapter** (the fine-tuned second-layer assistant), addressed by the registry;
-* a hosted **frontier model**, when the tenant has no adapter or it is not active.
+* a hosted model, resolved through `LLMConfig` — the same resolver the narrative uses, so a key
+  is only ever sent to the vendor that issued it.
 
 The distinction is not cosmetic: ``generated_by`` names which one wrote the words, and an adapter
 that has not passed its gate is never reachable from here.
@@ -16,18 +17,18 @@ that has not passed its gate is never reachable from here.
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import logging
 import os
-from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
-SECRETS = Path(os.path.expanduser("~/.config/decisiondesk/llm.key"))
-LEGACY_SECRETS = Path(os.path.expanduser("~/.config/mmdesk/llm.key"))
+from .llm import LLMConfig
 
-DEFAULT_BASE = os.environ.get("MMDESK_LLM_BASE") or "https://api.x.ai/v1"
-DEFAULT_MODEL = os.environ.get("MMDESK_LLM_MODEL") or "grok-4.7"
+log = logging.getLogger("mmdesk.opinion")
 
 SYSTEM = """You are the opinion layer of a decision-support tool. Two voices, one answer.
 
@@ -49,15 +50,20 @@ Return ONLY a JSON object with exactly these keys:
   "falsifier": one sentence naming what would prove this wrong
 """
 
+# Keys the opinion reads, and the name a decision adapter trained on the SFT schema uses for
+# the same field. Prose that arrived under the training name used to be dropped unread — and so
+# to escape the digit check.
+_OPINION_KEYS = {
+    "analysis": ("analysis", "reasoning"),
+    "lens_opinion": ("lens_opinion", "lens"),
+    "agreement": ("agreement", "agrees"),
+    "falsifier": ("falsifier",),
+}
+STANCES = {"add", "hold", "trim", "pass"}
 
-def _read_key() -> str:
-    env = (os.environ.get("MMDESK_LLM_KEY") or "").strip()
-    if env:
-        return env
-    for path in (SECRETS, LEGACY_SECRETS):
-        if path.exists():
-            return path.read_text(encoding="utf-8").strip()
-    return ""
+# Cloud metadata endpoints. An adapter's base_url is an operator-supplied request target, so it
+# is never allowed to point at the instance's own metadata service.
+_BLOCKED_HOSTS = {"metadata.google.internal", "metadata.azure.internal", "100.100.100.200"}
 
 
 def provider(tenant: Any | None = None) -> dict[str, Any]:
@@ -74,13 +80,42 @@ def provider(tenant: Any | None = None) -> dict[str, Any]:
             "key": adapter.get("key") or "local",
             "kind": "adapter",
             "tenant": tenant.id,
+            "problem": "",
         }
-    return {"base": DEFAULT_BASE, "model": DEFAULT_MODEL, "key": _read_key(),
-            "kind": "hosted", "tenant": tenant.id if tenant is not None else None}
+    cfg = LLMConfig.from_env()
+    return {"base": cfg.base_url, "model": cfg.model, "key": cfg.api_key, "kind": "hosted",
+            "tenant": tenant.id if tenant is not None else None, "problem": cfg.problem}
 
 
 def available(tenant: Any | None = None) -> bool:
     return bool(provider(tenant)["key"])
+
+
+def endpoint_allowed(base: str) -> bool:
+    """http(s) only, and never a link-local or metadata address."""
+    try:
+        parts = urlsplit(base if "//" in base else "//" + base)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return False
+    if parts.scheme not in ("http", "https") or not host or parts.username or parts.password:
+        return False
+    if host in _BLOCKED_HOSTS:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return not (ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved)
+
+
+def _pick(data: dict, names: tuple[str, ...]) -> str:
+    """The first non-empty string the model supplied under any of `names`."""
+    for name in names:
+        value = data.get(name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 
 
 def _has_digit(text: str) -> bool:
@@ -113,12 +148,17 @@ def opinion(card: dict, citations: list[dict] | None = None, timeout: float = 45
             tenant: Any | None = None) -> dict:
     prov = provider(tenant)
     if not prov["key"]:
-        return _template(card, "no key configured")
+        return _template(card, prov.get("problem") or "no key configured")
     # A key is not consent to send data out. Hosted providers need the explicit opt-in flag;
     # a tenant's own adapter runs on infrastructure the tenant already controls, so it does not.
+    if prov["kind"] == "adapter" and not endpoint_allowed(prov["base"]):
+        log.warning("refused adapter endpoint for tenant %s", prov.get("tenant"))
+        return _template(card, "adapter endpoint refused")
     if prov["kind"] == "hosted" and os.environ.get("MMDESK_ALLOW_CLOUD_LLM") != "1":
-        return _template(card, "cloud egress disabled (MMDESK_ALLOW_CLOUD_LLM != 1)")
+        return _template(card, "cloud model disabled")
 
+    # The question is the caller's text and the passages are the tenant's material; both are
+    # sent as data inside one JSON document and the system prompt fixes the output keys.
     context = {
         "instrument": card.get("instrument"),
         "mode": card.get("mode"),
@@ -143,36 +183,47 @@ def opinion(card: dict, citations: list[dict] | None = None, timeout: float = 45
             {"role": "user", "content": json.dumps(context, default=str)},
         ],
     }
+    url = f"{prov['base'].rstrip('/')}/chat/completions"
+    if prov["kind"] == "adapter":
+        label = f"adapter {prov['tenant']}"
+    else:
+        label = f"{prov['model']} @ {prov['base'].split('//')[-1].split('/')[0]}"
 
     last = ""
-    for _ in range(2):
+    for attempt in (1, 2):
         try:
             r = httpx.post(
-                f"{prov['base'].rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {prov['key']}", "Content-Type": "application/json"},
+                url,
+                headers={"Authorization": f"Bearer {prov['key']}",
+                         "Content-Type": "application/json"},
                 json=payload, timeout=timeout,
             )
             r.raise_for_status()
             content = r.json()["choices"][0]["message"]["content"]
-            data = json.loads(content)
-            prose = " ".join(str(data.get(k, "")) for k in
-                             ("analysis", "lens_opinion", "agreement", "falsifier"))
-            if _has_digit(prose):
+            if not isinstance(content, str):
+                raise ValueError("completion is not text")
+            # The digit check runs on the whole completion, whatever keys the model chose.
+            if _has_digit(content):
                 last = "model emitted numerals"
                 payload["messages"] += [
                     {"role": "assistant", "content": content},
                     {"role": "user", "content": "Remove every numeral. Describe quantities in words."},
                 ]
                 continue
-            data["stance"] = str(data.get("stance", "")).strip().lower()
-            if data["stance"] not in {"add", "hold", "trim", "pass"}:
-                data["stance"] = (card.get("verdict") or "hold").lower()
-            if prov["kind"] == "adapter":
-                data["generated_by"] = f"adapter {prov['tenant']} @ {prov['base'].split('//')[-1].split('/')[0]}"
-            else:
-                data["generated_by"] = f"{prov['model']} @ {prov['base'].split('//')[-1].split('/')[0]}"
-            return data
+            data = json.loads(content)
+            if not isinstance(data, dict):
+                raise ValueError("completion is not an object")
+            out = {key: _pick(data, names) for key, names in _OPINION_KEYS.items()}
+            stance = str(data.get("stance", "")).strip().lower()
+            out["stance"] = stance if stance in STANCES else (card.get("verdict") or "hold").lower()
+            if not any(out[k] for k in _OPINION_KEYS):
+                raise ValueError("completion carried none of the expected fields")
+            out["generated_by"] = label if attempt == 1 else f"{label} (retry {attempt})"
+            return out
         except Exception as exc:  # noqa: BLE001 - a model failure must not break the card
-            last = f"{type(exc).__name__}: {exc}"[:160]
+            # Type name only: exception text can carry the endpoint URL and the provider's
+            # message, and used to be returned to every caller in `generated_by`.
+            last = type(exc).__name__
+            log.warning("opinion attempt %s via %s failed: %s", attempt, prov["kind"], exc)
 
     return _template(card, f"model failed: {last}")

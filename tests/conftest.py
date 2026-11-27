@@ -37,7 +37,12 @@ def _isolated_state(tmp_path_factory):
         os.environ.pop(name, None)
     os.environ["MMDESK_DB"] = str(base / "desk.db")
     os.environ["MMDESK_DATA_DIR"] = str(base / "data")
+    from mmdesk import llm
+
+    key_files = llm.KEY_FILES
+    llm.KEY_FILES = (base / "no-such-key",)
     yield
+    llm.KEY_FILES = key_files
     for name, value in saved.items():
         if value is None:
             os.environ.pop(name, None)
