@@ -18,8 +18,15 @@ GOLDEN = ROOT / "eval" / "retrieval_golden.jsonl"
 ABSENT_CANDIDATES = ("ichimoku", "bollinger", "staking", "zyzzyva")
 
 
+INDEX = ROOT / "corpus" / "passages.jsonl"
+
+
 @pytest.fixture(scope="module")
 def corpus() -> Corpus:
+    # The index is tenant material and is deliberately not committed. A fresh clone has none, so
+    # these tests skip instead of failing — a red suite on checkout teaches people to ignore red.
+    if not INDEX.exists():
+        pytest.skip("no corpus/passages.jsonl in this checkout; retrieval fixtures need local material")
     return Corpus()
 
 
@@ -28,6 +35,8 @@ def tenant_id() -> str:
     """A tenant whose material is this repository's corpus. The default tenant has none."""
     from mmdesk import tenants
 
+    if not INDEX.exists():
+        pytest.skip("no corpus/passages.jsonl in this checkout")
     tid = "testcorpus"
     if tenants.get(tid) is None:
         tenants.create(tid, "Test corpus")
