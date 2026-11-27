@@ -14,19 +14,64 @@ The adapter is written to models/mm-decision-lora/. The base model is not modifi
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
-from datetime import datetime, timezone
 import re
-import sys
+from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "data" / "sft-cases.jsonl"
 OUT_DIR = ROOT / "models" / "mm-decision-lora"
 REPORT = ROOT / "data" / "train-report.json"
 
-BASE = "Qwen/Qwen2.5-7B-Instruct"
+BASE = "Qwen/Qwen2.5-3B-Instruct"
+
+
+def _shown(path: Path) -> str:
+    """Relative to the repository when it is inside it; absolute otherwise."""
+    try:
+        return str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+UNPARSED = "<unparsed>"
+
+
+def agreement_metrics(expected: list[str], predicted: list[str], digit_free: int) -> dict:
+    """How the adapter did on the held-out cases, counted over every one of them.
+
+    The agreement rate used to divide by the outputs that parsed. A model whose output would
+    not parse half the time then scored as if it had agreed with the engine on everything it
+    did produce, and passed the promotion gate. An unparsed output is recorded as a
+    disagreement and as a failure of the digit rule.
+    """
+    total = len(expected)
+    parsed = sum(1 for p in predicted if p != UNPARSED)
+    per_class: Counter = Counter()
+    per_class_hit: Counter = Counter()
+    confusion: Counter = Counter()
+    correct = 0
+    for want, got in zip(expected, predicted, strict=True):
+        per_class[want] += 1
+        per_class_hit[want] += got == want
+        correct += got == want
+        confusion[f"{want}->{got}"] += 1
+
+    def share(count: int) -> float | None:
+        return round(count / total, 3) if total else None
+
+    return {
+        "eval_cases": total,
+        "parsed": parsed,
+        "stance_agreement": share(correct),
+        "digit_free_rate": share(digit_free),
+        "parse_rate": share(parsed),
+        "per_class_recall": {k: round(per_class_hit[k] / v, 2) for k, v in per_class.items()},
+        "confusion": dict(confusion.most_common(12)),
+    }
 
 
 def load_cases(path: Path) -> list[dict]:
@@ -43,8 +88,14 @@ def train(args: argparse.Namespace) -> int:
     import torch
     from datasets import Dataset
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-    from transformers import (AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig,
-                              DataCollatorForLanguageModeling, Trainer, TrainingArguments)
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        BitsAndBytesConfig,
+        DataCollatorForLanguageModeling,
+        Trainer,
+        TrainingArguments,
+    )
 
     if not torch.cuda.is_available():
         print("CUDA unavailable — refusing to start. Install cu128 wheels into trainenv.")
@@ -53,7 +104,7 @@ def train(args: argparse.Namespace) -> int:
     print(f"gpu {torch.cuda.get_device_name(0)} · sm_{major}{minor} · "
           f"{torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
 
-    rows = load_cases(DATA)
+    rows = load_cases(Path(args.data))
     if len(rows) < 20:
         print(f"dataset too small ({len(rows)}) — run scripts/build_sft_dataset.py first")
         return 2
@@ -61,7 +112,7 @@ def train(args: argparse.Namespace) -> int:
     for row in rows:
         by_label.setdefault(row["meta"]["label"], []).append(row)
     train_rows, eval_rows = [], []
-    for label, group in by_label.items():
+    for group in by_label.values():
         k = max(1, round(len(group) * 0.15))
         eval_rows.extend(group[-k:])
         train_rows.extend(group[:-k])
@@ -118,6 +169,7 @@ def train(args: argparse.Namespace) -> int:
     final_loss = None
 
     if not args.eval_only:
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
         targs = TrainingArguments(
             output_dir=str(OUT_DIR / "checkpoints"),
             per_device_train_batch_size=1,
@@ -158,12 +210,10 @@ def train(args: argparse.Namespace) -> int:
     # Agreement with the engine is the only metric that matters for this layer: a model that
     # articulates decisions the shipped rules would not make is worse than no model.
     model.eval()
-    correct = 0
-    digit_free = 0
-    parsed = 0
     samples = []
     predictions: list[str] = []
     expected_labels: list[str] = []
+    digit_free = 0
     for row in eval_rows:
         prompt = tok.apply_chat_template(row["messages"][:2], tokenize=False,
                                          add_generation_prompt=True)
@@ -172,54 +222,46 @@ def train(args: argparse.Namespace) -> int:
             out = model.generate(**inputs, max_new_tokens=220, do_sample=False,
                                  pad_token_id=tok.pad_token_id)
         text = tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+        expected_labels.append(json.loads(row["messages"][-1]["content"])["stance"])
+
         match = re.search(r"\{.*\}", text, re.S)
-        if not match:
+        data = None
+        if match:
+            with contextlib.suppress(json.JSONDecodeError):
+                loaded = json.loads(match.group(0))
+                if isinstance(loaded, dict):
+                    data = loaded
+        if data is None:
+            # An output that will not parse is a disagreement with the engine, not a case to
+            # drop — and it is not digit-free either, since nothing in it could be checked.
+            predictions.append(UNPARSED)
             continue
-        try:
-            data = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            continue
-        parsed += 1
-        expected = json.loads(row["messages"][-1]["content"])
         predictions.append(str(data.get("stance", "")).strip().lower())
-        expected_labels.append(expected["stance"])
-        if predictions[-1] == expected["stance"]:
-            correct += 1
-        prose = f"{data.get('reasoning','')} {data.get('falsifier','')}"
-        if not re.search(r"\d", prose):
+        # Every digit in the whole completion counts, whatever key it sits under — the rule
+        # the app enforces at inference time.
+        if not re.search(r"\d", text):
             digit_free += 1
         if len(samples) < 3:
-            samples.append({"expected": expected["stance"], "got": data.get("stance"),
-                            "reasoning": prose[:220]})
-
-    from collections import Counter
-    confusion = Counter()
-    per_class = Counter()
-    per_class_hit = Counter()
-    for expected, got in zip(expected_labels, predictions):
-        per_class[expected] += 1
-        if got == expected:
-            per_class_hit[expected] += 1
-        confusion[f"{expected}->{got}"] += 1
+            samples.append({
+                "expected": expected_labels[-1], "got": data.get("stance"),
+                "reasoning": f"{data.get('reasoning', '')} {data.get('falsifier', '')}"[:220],
+            })
 
     report = {
-        "base": base, "cases": len(rows), "eval_cases": len(eval_rows),
-        "parsed": parsed,
-        "stance_agreement": round(correct / parsed, 3) if parsed else None,
-        "digit_free_rate": round(digit_free / parsed, 3) if parsed else None,
-        "adapter": str(OUT_DIR.relative_to(ROOT)),
+        "base": base, "cases": len(rows),
+        **agreement_metrics(expected_labels, predictions, digit_free),
+        "adapter": _shown(OUT_DIR),
         "steps": steps,
         "final_train_loss": round(final_loss, 4) if final_loss else None,
-        "per_class_recall": {k: round(per_class_hit[k] / v, 2) for k, v in per_class.items()},
-        "confusion": dict(confusion.most_common(12)),
         "samples": samples,
+        # True because the run aborts above when any held-out prompt appears in training.
         "leakage_free": True,
     }
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps({k: report[k] for k in ("parsed", "stance_agreement", "digit_free_rate")},
                      indent=2))
-    print("report:", REPORT.relative_to(ROOT))
+    print("report:", _shown(REPORT))
 
     if args.register and args.tenant:
         from mmdesk import tenants
@@ -234,6 +276,7 @@ def train(args: argparse.Namespace) -> int:
             "eval": {
                 "stance_agreement": report["stance_agreement"],
                 "digit_free_rate": report["digit_free_rate"],
+                "parse_rate": report["parse_rate"],
                 "eval_cases": report["eval_cases"],
                 "leakage_free": True,
             },
@@ -256,6 +299,9 @@ def main() -> int:
     ap.add_argument("--grad-accum", type=int, default=8)
     ap.add_argument("--max-len", type=int, default=2048)
     ap.add_argument("--tenant", default="", help="train for a registered tenant")
+    ap.add_argument("--data", default="",
+                    help="training set; default data/sft-cases.jsonl, or data/<tenant>/sft-cases.jsonl "
+                         "with --tenant (where build_sft_dataset.py writes it)")
     ap.add_argument("--out-dir", default="")
     ap.add_argument("--register", action="store_true",
                     help="record the trained adapter as a candidate in the tenant registry")
@@ -266,6 +312,11 @@ def main() -> int:
         OUT_DIR = Path(args.out_dir)
     elif args.tenant:
         OUT_DIR = ROOT / "models" / args.tenant
+    if not args.data:
+        # The builder writes data/<tenant>/sft-cases.jsonl; the trainer used to read one fixed
+        # file regardless of the tenant, so a tenant's run trained on whatever sat there.
+        folder = ROOT / "data" / (args.tenant or "")
+        args.data = str(folder / "sft-cases.jsonl")
     return train(args)
 
 

@@ -11,6 +11,8 @@ Accepted inputs, in order of fidelity:
 * ``.txt`` / ``.md`` notes (no timestamps; each chunk gets a sequential synthetic start)
 
 Chunking is sentence-aligned and overlapping, because a quote cut mid-sentence is not a quote.
+Notes have no recording to point into, so their timestamps are sequential placeholders; the
+index marks them ``synthetic`` and the card labels them as notes rather than as moments.
 
     python scripts/ingest_corpus.py --tenant acme --src ./material --title "Acme method"
 """
@@ -29,6 +31,7 @@ sys.path.insert(0, str(ROOT))
 
 from collections import Counter  # noqa: E402
 
+from mmdesk import tenants as tenant_mod  # noqa: E402
 from retrieval import tokens  # noqa: E402
 
 CHUNK_CHARS = 900
@@ -95,7 +98,8 @@ def from_text(path: Path, seq: int) -> list[dict]:
     for i, chunk in enumerate(chunks(path.read_text(encoding="utf-8", errors="replace"))):
         start = seq * 3600 + i * 120
         rows.append({"video_id": path.stem[:11], "video_title": path.stem,
-                     "start_s": start, "stamp": stamp(start), "text": chunk, "url": ""})
+                     "start_s": start, "stamp": stamp(start), "text": chunk, "url": "",
+                     "synthetic": True})
     return rows
 
 
@@ -106,6 +110,12 @@ def main() -> int:
     ap.add_argument("--title", default="", help="catalogue title used in /health")
     ap.add_argument("--out", default="")
     args = ap.parse_args()
+
+    # The id becomes a directory name. Anything that is not a plain id could write the index
+    # outside corpus/.
+    if not tenant_mod.TENANT_ID.match(args.tenant):
+        print(f"tenant id must be 2-32 lower-case letters, digits, '-' or '_': {args.tenant!r}")
+        return 2
 
     src = Path(args.src)
     if not src.exists():
@@ -149,7 +159,9 @@ def main() -> int:
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
     for vid in videos:
         secs = max((r["start_s"] for r in rows if r["video_id"] == vid), default=0)
-        meta.setdefault(vid, {"title": args.title or vid, "duration": secs + 120})
+        meta.setdefault(vid, {"title": args.title or vid, "duration": secs + 120,
+                              "synthetic": any(r.get("synthetic") for r in rows
+                                                if r["video_id"] == vid)})
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     print(json.dumps({"tenant": args.tenant, "passages": len(rows), "sources": len(files),

@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import random
 import re
 import sys
@@ -27,9 +26,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from mmdesk import rubric, rules                      # noqa: E402
-from mmdesk.decision import _lens_action                # noqa: E402
-from mmdesk.opinion import api_key, BASE, MODEL       # noqa: E402
+from mmdesk import rubric, rules  # noqa: E402
+from mmdesk.decision import _lens_action  # noqa: E402
+from mmdesk.llm import LLMConfig  # noqa: E402
 
 OUT = ROOT / "data" / "sft-cases.jsonl"
 
@@ -74,7 +73,9 @@ def sample_case(rng: random.Random, idx: int) -> dict:
                             cash_pct=cash_pct, min_cash_pct=0.0,
                             commission_per_share=0.0, slippage_bps=0.0)
     size = rules.size_position(setup, account)
-    action, reason = _lens_action(score, size["pct_of_equity"], alert, setup.reward_risk)
+    # The same inputs the shipped card uses: the sizer's dict, and reward/risk after costs.
+    rr = size["reward_risk"] if size.get("shares") else setup.reward_risk
+    action, reason = _lens_action(score, size, alert, rr)
 
     return {
         "id": idx,
@@ -87,17 +88,55 @@ def sample_case(rng: random.Random, idx: int) -> dict:
             "components": comps, "shares": size["shares"],
             "pct_of_equity": round(size["pct_of_equity"], 4), "capped_by": size.get("capped_by"),
         },
-        "label": {"stance": action, "engine_reason": reason},
+        "label": {"stance": action, "engine_reason": reason,
+                   "reason_words": reason_in_words(action, size, alert)},
     }
+
+
+def reason_in_words(action: str, size: dict, alert: str) -> str:
+    """The engine's reason with no numeral in it.
+
+    The reason shown on a card carries the score and the ratio. A training target may not:
+    it fell back to that text whenever the teacher model was unavailable or refused a case, and
+    every offline case carried a digit — teaching the adapter to write what the app rejects.
+    """
+    if action == "add":
+        return ("The composite score clears the add threshold, and reward-to-risk after costs "
+                "is at least two to one.")
+    if action == "hold":
+        return "The score sits in the hold band: the odds are acceptable and no edge justifies adding."
+    if action == "trail":
+        return ("The score is below the hold band: reward-to-risk is poor, so the exit is "
+                "managed rather than added to.")
+    cap = size.get("capped_by")
+    if cap == "risk":
+        return "No position fits the risk budget: a single share would risk more than the budget allows."
+    if cap == "cash":
+        return "No position fits: the stated cash does not cover a share."
+    if cap == "conviction":
+        return "No position fits under the position cap that follows from the score."
+    if str(size.get("reason", "")).startswith("no new exposure"):
+        return f"The {alert} alert posture selected permits no new exposure at this score."
+    return "No position fits the risk budget as stated."
 
 
 DIGIT_RE = re.compile(r"\d")
 
 
-def ask_teacher(cases: list[dict], model: str = MODEL, timeout: float = 120.0) -> dict[int, dict]:
+def configured() -> LLMConfig:
+    """The teacher is the configured hosted model. A key with no recognised vendor and no
+    named endpoint has nowhere to go, so the build stops instead of guessing one."""
+    cfg = LLMConfig.from_env()
+    if not cfg.configured:
+        raise SystemExit(f"no usable model key: {cfg.problem}")
+    return cfg
+
+
+def ask_teacher(cases: list[dict], cfg: LLMConfig, timeout: float = 120.0) -> dict[int, dict]:
     """One call per batch. Returns {id: {reasoning, falsifier}}; empty on failure."""
     import httpx
 
+    model = cfg.model
     payload_cases = [
         {"id": c["id"], "situation": c["situation"], "decision": c["label"]["stance"],
          "engine_reason": c["label"]["engine_reason"]}
@@ -113,8 +152,8 @@ def ask_teacher(cases: list[dict], model: str = MODEL, timeout: float = 120.0) -
         ],
     }
     try:
-        r = httpx.post(f"{BASE}/chat/completions",
-                       headers={"Authorization": f"Bearer {api_key()}",
+        r = httpx.post(f"{cfg.base_url}/chat/completions",
+                       headers={"Authorization": f"Bearer {cfg.api_key}",
                                 "Content-Type": "application/json"},
                        json=body, timeout=timeout)
         r.raise_for_status()
@@ -138,7 +177,7 @@ def to_record(case: dict) -> dict:
     situation = case["situation"]
     answer = {
         "stance": case["label"]["stance"],
-        "reasoning": case.get("teacher", {}).get("reasoning") or case["label"]["engine_reason"],
+        "reasoning": case.get("teacher", {}).get("reasoning") or case["label"]["reason_words"],
         "falsifier": case.get("teacher", {}).get("falsifier")
         or "A close beyond the invalidation level, or the stated trend measure flipping.",
     }
@@ -146,7 +185,7 @@ def to_record(case: dict) -> dict:
         "messages": [
             {"role": "system", "content": (
                 "You are the decision voice of a swing-trading tool. Given a situation, answer with "
-                "a JSON object: stance (add, hold, trim or pass), reasoning, falsifier. Never write "
+                "a JSON object: stance (add, hold, trail or pass), reasoning, falsifier. Never write "
                 "a numeral; refer to levels and sizes by description."
             )},
             {"role": "user", "content": json.dumps(situation, default=str)},
@@ -169,52 +208,63 @@ def main() -> int:
     if not args.out:
         args.out = str(Path("data") / args.tenant / "sft-cases.jsonl") if args.tenant else str(OUT)
 
-    if not args.dry_run and not api_key():
-        print("no model key configured (MMDESK_LLM_KEY or ~/.config/decisiondesk/llm.key)")
-        return 2
+    cfg = None if args.dry_run else configured()
 
     rng = random.Random(args.seed)
     # Balance by drawing until every stance has a quota. Random draws are dominated by "pass"
     # (most sampled situations fail a gate), and a set that is mostly one label teaches the model
     # to say that label — the accuracy looks fine and the model is useless.
     quota = max(1, args.n // 4)
-    buckets: dict[str, list[dict]] = {"add": [], "hold": [], "trim": [], "trail": [], "pass": []}
+    # The engine's four stances. ("trim" is a crowd stance; the card never emits it, and a
+    # bucket for it kept the sampler drawing until the attempt limit.)
+    stances = ("add", "hold", "trail", "pass")
+    buckets: dict[str, list[dict]] = {stance: [] for stance in stances}
     idx = 0
     attempts = 0
-    while attempts < args.n * 60 and any(len(v) < quota for v in buckets.values()):
+    while attempts < args.n * 60 and any(len(buckets[s]) < quota for s in stances):
         attempts += 1
         case = sample_case(rng, idx)
         idx += 1
-        bucket = buckets.setdefault(case["label"]["stance"], [])
+        bucket = buckets[case["label"]["stance"]]
         if len(bucket) < quota:
             bucket.append(case)
-    cases = [c for stance in ("add", "hold", "trim", "trail", "pass") for c in buckets[stance]]
+    cases = [c for stance in stances for c in buckets[stance]]
 
     if not args.dry_run:
         for start in range(0, len(cases), args.batch):
             chunk = cases[start:start + args.batch]
-            written = ask_teacher(chunk)
+            written = ask_teacher(chunk, cfg)
             for c in chunk:
                 if c["id"] in written:
                     c["teacher"] = written[c["id"]]
             print(f"  batch {start // args.batch + 1}: {len(written)}/{len(chunk)} verbalised")
 
+    # The last gate before anything is written: a target with a numeral would teach the model
+    # to write one, which is the one thing inference refuses.
+    records, dropped = [], 0
+    for case in cases:
+        record = to_record(case)
+        answer = json.loads(record["messages"][-1]["content"])
+        if DIGIT_RE.search(answer["reasoning"] + answer["falsifier"]):
+            dropped += 1
+            continue
+        records.append(record)
+
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as fh:
-        for case in cases:
-            fh.write(json.dumps(to_record(case), ensure_ascii=False) + "\n")
+        for record in records:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     from collections import Counter
-    labels = Counter(c["label"]["stance"] for c in cases)
-    taught = sum(1 for c in cases if c.get("teacher"))
-    print(f"\nwrote {len(cases)} cases -> {out_path}")
+    labels = Counter(r["meta"]["label"] for r in records)
+    taught = sum(1 for r in records if r["meta"]["teacher"])
+    print(f"\nwrote {len(records)} cases -> {out_path}" + (f" ({dropped} dropped: numeral in the target)" if dropped else ""))
     print("labels:", dict(labels))
-    print(f"teacher-written: {taught}/{len(cases)}")
-    if cases:
-        sample = to_record(cases[0])
-        print("\nsample answer:", sample["messages"][-1]["content"][:300])
-    return 0
+    print(f"teacher-written: {taught}/{len(records)}")
+    if records:
+        print("\nsample answer:", records[0]["messages"][-1]["content"][:300])
+    return 0 if records else 2
 
 
 if __name__ == "__main__":

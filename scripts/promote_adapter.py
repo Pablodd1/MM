@@ -1,8 +1,9 @@
 """Promote a trained tenant adapter — or refuse it out loud.
 
-Training scripts are the party with an incentive to call a run a success. The gate lives in the
-registry (``mmdesk.tenants.activate_adapter``) and this script only reports its verdict, so
-"we trained something" and "it is allowed to answer" stay separate facts.
+Training scripts are the party with an incentive to call a run a success. The gate lives in
+the registry (``mmdesk.tenants.activate_adapter``); this script reports its verdict and adds
+no threshold of its own, so "we trained something" and "it is allowed to answer" stay separate
+facts and there is one bar to change, not two.
 
     python scripts/promote_adapter.py --tenant acme
     python scripts/promote_adapter.py --tenant acme --show
@@ -20,7 +21,10 @@ sys.path.insert(0, str(ROOT))
 
 from mmdesk import tenants  # noqa: E402
 
-BAR = 0.85
+
+def _shown(adapter: dict) -> dict:
+    """The recorded candidate without anything that opens a door."""
+    return {k: ("<not shown>" if k == "key" and v else v) for k, v in adapter.items()}
 
 
 def main() -> int:
@@ -34,25 +38,23 @@ def main() -> int:
         print(f"unknown tenant: {args.tenant}")
         return 2
 
-    adapter = t.adapter or {}
-    if args.show or not adapter:
-        print(json.dumps({"tenant": t.id, "adapter": adapter,
-                          "gate": {"stance_agreement_min": BAR, "requires_leakage_free": True}},
-                         indent=2))
-        return 0 if adapter else 2
+    candidate = t.pending_candidate or {}
+    if candidate:
+        ev = candidate.get("eval") or {}
+        print(f"candidate: agreement={ev.get('stance_agreement')} "
+              f"leakage_free={ev.get('leakage_free')} digit_free={ev.get('digit_free_rate')} "
+              f"cases={ev.get('eval_cases')}")
+    if args.show or not candidate:
+        print(json.dumps({"tenant": t.id, "candidate": _shown(candidate),
+                          "active": t.active_adapter is not None}, indent=2))
+        return 0 if candidate else 2
 
-    ev = adapter.get("eval") or {}
-    agreement = ev.get("stance_agreement")
-    leak_free = bool(ev.get("leakage_free"))
-    print(f"candidate: agreement={agreement} leakage_free={leak_free} "
-          f"digit_free={ev.get('digit_free_rate')} cases={ev.get('eval_cases')}")
-
-    if agreement is None or agreement < BAR or not leak_free:
-        print(f"REFUSED: needs agreement >= {BAR} and a leakage-free evaluation. "
-              "The adapter stays a candidate; the app keeps using retrieval or the hosted model.")
+    try:
+        activated = tenants.activate_adapter(args.tenant)
+    except ValueError as exc:
+        print(f"REFUSED by the registry: {exc}")
+        print("The adapter stays a candidate; the app keeps using the hosted model or the template.")
         return 1
-
-    activated = tenants.activate_adapter(args.tenant)
     print(json.dumps({"tenant": args.tenant, "status": activated.get("status"),
                       "activated_at": activated.get("activated_at")}, indent=2))
     print("Layer 2 for this tenant now answers with its own adapter.")
