@@ -114,10 +114,58 @@ def reset_cache() -> None:
     _unreadable.clear()
 
 
+# How many passages BM25 hands to the reranker. Deep enough to hold the right answer even when
+# BM25 ranks it tenth; shallow enough that reranking stays fast.
+RERANK_POOL = 25
+
+
+def _serve(corpus, candidate: list, query: str) -> list[dict]:
+    """Turn scored hits into served passages, reranking when the layer is active.
+
+    Without the reranker this is the calibrated BM25 order with its floor, unchanged. With it,
+    BM25's top pool is re-scored by the cross-encoder and only passages it scores as actually
+    answering the question are served — a passage that shares vocabulary but does not answer is
+    a refusal, not a quote.
+    """
+    from . import rerank as rerank_mod
+
+    hits = candidate
+    if rerank_mod.enabled() and rerank_mod.installed():
+        try:
+            scores = rerank_mod.rerank(query, [h.text for h in hits])
+        except Exception:  # noqa: BLE001 - no reranker failure may take a card down
+            log.warning("reranker raised; keeping BM25 order", exc_info=True)
+            scores = None
+        if scores is not None:
+            best_first = sorted(zip(scores, hits, strict=True),
+                                key=lambda pair: pair[0], reverse=True)
+            hits = [h for s, h in best_first if s > rerank_mod.RELEVANT_ABOVE][:5]
+            if not hits:
+                corpus.last_refusal = (
+                    f"rerank_below_threshold:no passage scored above {rerank_mod.RELEVANT_ABOVE:.0f}")
+                return []
+    return [
+        {"video_id": h.video_id, "video_title": h.video_title, "start_s": h.start_s,
+         "stamp": h.stamp, "url": h.url, "text": h.text, "score": h.score,
+         "synthetic": h.synthetic}
+        for h in hits
+    ]
+
+
 def search(query: str, k: int = 5, tenant_id: str | None = None) -> list[dict]:
     index = _loaded(tenant_id)
     if index is None:
         return []
+    from . import rerank as rerank_mod
+
+    if rerank_mod.enabled() and rerank_mod.installed():
+        # Deep pool, no BM25 floor: the reranker decides what is served. The vocabulary gate
+        # still runs inside Corpus.search, so topics the material never covers are refused
+        # before any of this.
+        candidate = index.corpus.search(query, k=RERANK_POOL, min_score=0)
+        if not candidate:
+            return []
+        return _serve(index.corpus, candidate, query)
     return [
         {"video_id": h.video_id, "video_title": h.video_title, "start_s": h.start_s,
          "stamp": h.stamp, "url": h.url, "text": h.text, "score": h.score,

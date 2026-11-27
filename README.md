@@ -56,6 +56,21 @@ and runs in CI (`.github/workflows/ci.yml`).
 7. **Second opinion.** `/api/opinion` re-reads the card and answers in two voices. It does not
    journal: asking twice must not count the question twice in the track record.
 
+### Semantic reranker (optional, measured)
+
+`MMDESK_RERANKER=1` (with `pip install -r requirements-rerank.txt`) adds an open-source
+cross-encoder — fastembed's ONNX MiniLM over MS MARCO, Apache-2.0 — that re-scores the
+retrieval candidate pool and serves only passages it judges to actually answer the question.
+The first question downloads the model once.
+
+**It is off by default because it was measured, and measurement said not yet.** On clean text
+it separates sharply (the true sell-half rule scored +6.2 against −2.0 and −11.1 for decoys),
+but over this corpus's golden set, calibrated BM25 holds hit@1 4/11 with hit@5 9/11 while no
+rerank variant dominates (the best trades hit@1 5/11 for hit@5 6/11). `/health` reports which
+path is active. `MMDESK_RERANKER_MODEL` overrides the model id; nothing else is needed, and
+serverless hosts are unaffected because the dependency is deliberately not in
+`requirements.txt`.
+
 ## Endpoints
 
 | Route | Method | Notes |
@@ -121,6 +136,8 @@ machine.
 | `MMDESK_ADMIN_TOKEN` | enables remote admin with `X-Admin-Token` |
 | `MMDESK_DATA_DIR`, `MMDESK_DB` | where journals and the registry live |
 | `MMDESK_RATE_LIMIT` | requests per minute per caller (default 30) |
+| `MMDESK_RERANKER` | `1` enables the semantic reranker (off by default; see above) |
+| `MMDESK_RERANKER_MODEL` | reranker model id override (default `Xenova/ms-marco-MiniLM-L-6-v2`) |
 
 A key whose prefix is not recognised is not sent anywhere until you name the endpoint:
 `sk-` is shared by several vendors, and guessing would hand one of them another's key.

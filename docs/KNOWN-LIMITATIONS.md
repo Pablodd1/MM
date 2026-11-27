@@ -98,6 +98,17 @@ question served, precision@1 0.82, recall@5 0.82. The gap is real: two of eleven
 questions return an off-topic passage (the sell-half and cash rules both surface a company
 discussion instead). A cross-encoder reranker is the fix; a bigger threshold is not.
 
+**The cross-encoder reranker is now built — and measured as not yet better (2026-11-27).**
+`mmdesk/rerank.py` runs fastembed's ONNX MiniLM cross-encoder (`Xenova/ms-marco-MiniLM-L-6-v2`,
+Apache-2.0) as an opt-in layer: `MMDESK_RERANKER=1` reranks BM25's candidate pool and serves
+only passages the model scores as actually answering the question. On clean text it separates
+sharply — the true sell-half rule scored +6.2 against −2.0 and −11.1 for the decoys. On the
+real corpus it does not win: over the golden set, calibrated BM25 holds hit@1 4/11, hit@5 9/11,
+while the best rerank variant trades hit@1 5/11 for hit@5 6/11, and the threshold-only variant
+drops hit@5 to 6/11. None dominates, so **it ships off by default** and BM25 stays the served
+path; `/health` reports which is active. It may earn its place as the corpus grows or the
+passages get more structured — the measurement script is the arbiter, not the intuition.
+
 ## 12. The journal has no history yet
 
 Grading is implemented and tested: gap fills, intrabar stops, split-adjusted data, corporate

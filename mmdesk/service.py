@@ -43,6 +43,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 from . import conversation as conversation_mod
 from . import opinion as opinion_mod
 from . import persona as persona_mod
+from . import rerank as rerank_mod
 from . import rubric, rules
 from . import scenarios as scenario_mod
 from . import tenants as tenant_mod
@@ -579,6 +580,7 @@ def health() -> dict[str, Any]:
                        ("hosted" if opinion_mod.available(default) else "template")),
         },
         "corpus_coverage": corpus_coverage(default.id),
+        "reranker": rerank_mod.status(),
         # A count, not the roster: tenant names are the operator's business.
         "tenants": len(tenant_mod.all_tenants()),
         "intraday_supported": intraday_supported(),
