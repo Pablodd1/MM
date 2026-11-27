@@ -54,7 +54,7 @@ leaves the request. `/health` reports `voice.local_only: true`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MMDESK_VOICE_DIR` | `C:\Users\GAMEPOWER\tools\tts-local` | Kokoro model + voices |
+| `MMDESK_VOICE_DIR` | `<home>\tools\tts-local` | Kokoro model + voices |
 | `MMDESK_STT_MODEL` | `large-v3` | faster-whisper model |
 | `MMDESK_STT_DEVICE` | `cuda` | `cuda` or `cpu` |
 | `MMDESK_STT_COMPUTE` | `float16` | `float16` / `int8` |
