@@ -1,3 +1,7 @@
+> **Archived 2026-11-27** — historical, written for an earlier build. Superseded by `README.md`,
+> `docs/HANDOVER.md` and `docs/KNOWN-LIMITATIONS.md`. Its model benchmark and pricing figures were never verified, its build order was
+> not the one followed, and it plans a single-tenant product.
+
 # MM Desk — product plan
 
 *A research assistant that answers "what would Money Mark do?" next to a conventional

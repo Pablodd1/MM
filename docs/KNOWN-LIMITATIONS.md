@@ -43,11 +43,13 @@ card's confidence stays `low`/`medium` accordingly.
 embeddings yet, so recall is weaker than it should be for a 130-hour corpus. This will produce
 false "he has not addressed this" answers.
 
-## 6. The narrative layer is unverified against a key
+## 6. The narrative layer, keyed and unkeyed
 
-`llm.py` is written and its number-grounding check is unit-tested, but no live call has been made
-in this build — no API key is configured on this machine. The template fallback is what produced
-every card so far. **Do not claim the model path works until a keyed run is recorded.**
+The digit ban is enforced the same way wherever prose comes from: the whole completion is checked,
+whatever keys the model chose (an adapter trained under `reasoning` used to slip past it). The
+template fallback labels itself, and so does every model-written passage. What is still true: the
+hosted and adapter paths are exercised by the suite with stand-ins, and a keyed live run should be
+recorded before claiming model-written output in front of a client.
 
 ## 7. No track record
 
@@ -55,24 +57,31 @@ every card so far. **Do not claim the model path works until a keyed run is reco
 of settled entries; nothing here has been scored against outcomes over months. Any performance
 implication would be fabricated.
 
-## 8. Single user, no auth
+## 8. Tenants are addressed by id, not credentials
 
-The service binds to 127.0.0.1 and has no authentication. It must not be exposed on a network
-interface as-is, and the journal has no encryption at rest.
+There is no login. A tenant id is an address: anyone who knows one can analyse under it, and the
+deterministic endpoints are open by design. What is protected: journals (loopback, admin token, or
+the per-browser `X-Journal-Id` scope), the tenant roster and adapter routes (loopback or admin
+token; on a serverless host, token only), and the adapter gate. Journals have no encryption at
+rest. Real multi-user needs auth with the tenant inside the token — see `docs/HANDOVER.md` §7.
 
 ## 9. Third-party content
 
-Transcripts are not committed (see `.gitignore`). The corpus is derived from public videos and is
-for research; republishing transcripts would be a copyright problem. The app cites and links
-rather than reproducing long excerpts.
+The corpus and transcripts are not in the tree, and `.gitignore` plus `.vercelignore` keep them out
+of commits and deploys; a hygiene test fails the suite if local state is ever tracked. Note that
+the full transcript index remains retrievable from **git history** (commit `1d67d2c`) — that is an
+owner decision recorded in `docs/HANDOVER.md` §11, not something code can fix. The app itself cites
+and links rather than reproducing long excerpts.
 
-## 10. The person it imitates has not consented
+## 10. Attribution is per tenant, never global
 
-The product is labelled an unofficial prototype. It uses Mark's *published rules*, not his face,
-voice or current positions. That labelling is a hard requirement, not a nicety — see
-`docs/ROADMAP.md`, P4.
+The shipped product names no one: the engine implements a published method and the UI, card and
+docs describe it generically. Consent to use a person's name is recorded in `docs/CONSENT.md` and
+is rendered only through a tenant's own `attribution` field — a global label would attribute every
+tenant's output to one person, which is exactly the claim to avoid. A written release is still
+required before any public, paid, or presented-as-theirs use.
 
-## 6. Retrieval: calibrated refusal, uncalibrated relevance (updated 2026-11-24)
+## 11. Retrieval: calibrated refusal, uncalibrated relevance (updated 2026-11-24)
 
 The refusal threshold is no longer a guess. `docs/RETRIEVAL-CALIBRATION.md` records the
 measurement: at the old `min_score = 4.0`, **nothing was ever refused**, and irrelevant
@@ -89,10 +98,9 @@ question served, precision@1 0.82, recall@5 0.82. The gap is real: two of eleven
 questions return an off-topic passage (the sell-half and cash rules both surface a company
 discussion instead). A cross-encoder reranker is the fix; a bigger threshold is not.
 
-## 7. The journal has no history yet
+## 12. The journal has no history yet
 
 Grading is implemented and tested: gap fills, intrabar stops, split-adjusted data, corporate
-action flags. What it does not have is *time*. Every entry in the journal was created on the day
-the app was built, so no 30/90/180/365-day horizon has elapsed and `POST /api/journal/grade`
-correctly returns `graded: 0` against live data. Any accuracy claim before those horizons close
-would be invented, so none is made.
+action flags, and horizons that grade only once they have closed. What it does not have is *time*:
+no 30/90/180/365-day horizon has elapsed on real calls, so any accuracy claim would be invented,
+and none is made.

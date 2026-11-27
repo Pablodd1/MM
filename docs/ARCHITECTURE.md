@@ -46,7 +46,7 @@ service.py  ──────────────── FastAPI
 
 | Field | Meaning |
 |---|---|
-| `mm_lens.score_10` / `components` / `score_meta.source` | the score and exactly how it was produced |
+| `lens.score_10` / `components` / `score_meta.method` | the score and exactly how it was produced |
 | `mm_lens.cited_rules[]` | rule name, video id, start second, deep link |
 | `standard_lens.trend.score` | −3…+3 from price vs 20/50/200 SMA |
 | `disagreement.exists` / `summary` / `tie_break` | the product |
@@ -68,8 +68,10 @@ for his judgement.
 
 ## What is deliberately not here
 
-- Chart vision (`/api/chart` returns 503 without `VISION_API_KEY`; parsing is P2).
+- Chart vision. `/api/chart` accepts an image as a *reference* and requires typed levels; it
+  returns 422 `levels_required` without them. Pixels are never read for numbers.
 - Voice loop and avatar (P3/P4).
 - Intraday data. `intraday_supported()` returns False; intraday mode runs on daily bars and the
   card carries a falsifier saying so.
-- Multi-user accounts, auth, and persistence beyond a local JSONL journal.
+- Accounts and login. Tenancy exists (`X-Tenant`) but a tenant id is an address, not a
+  credential; journals are private to their scope. See `docs/KNOWN-LIMITATIONS.md` §8.

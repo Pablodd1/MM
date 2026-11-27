@@ -1,3 +1,7 @@
+> **Archived 2026-11-27** — historical, written for an earlier build. Superseded by `README.md`,
+> `docs/HANDOVER.md` and `docs/KNOWN-LIMITATIONS.md`. It describes a pre-tenancy build, a consent position the project has since
+> recorded differently, and endpoints/thresholds that have changed.
+
 # Review prompt — paste this to another AI developer
 
 You are reviewing a working prototype called **MM Desk**. Your job is to find what is wrong,

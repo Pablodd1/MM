@@ -1,3 +1,7 @@
+> **Archived 2026-11-27** — historical, written for an earlier build. Superseded by `README.md`,
+> `docs/HANDOVER.md` and `docs/KNOWN-LIMITATIONS.md`. Its phase table reflects the single-corpus build; current state and priorities are
+> in `docs/HANDOVER.md` §2 and §10.
+
 # Roadmap
 
 Status as of 2026-11-24: **core, voice, persona, scenarios and journal grading built and tested

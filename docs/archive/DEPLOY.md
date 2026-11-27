@@ -1,3 +1,7 @@
+> **Archived 2026-11-27** — historical, written for an earlier build. Superseded by `README.md`,
+> `docs/HANDOVER.md` and `docs/KNOWN-LIMITATIONS.md`. It documents a deleted entrypoint, a private repo that is not this one, stale test
+> counts and stale endpoint behaviour. Deployment facts now live in `README.md`.
+
 # Deploy
 
 Two targets: **GitHub** (done, private) and **Vercel** (prepared; needs one authenticated

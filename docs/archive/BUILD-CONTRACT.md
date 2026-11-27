@@ -1,3 +1,8 @@
+> **Archived 2026-11-27** — historical, written for an earlier build. Superseded by `README.md`,
+> `docs/HANDOVER.md` and `docs/KNOWN-LIMITATIONS.md`. Its requirements table was the founding brief; the shipped product covers a
+> different scope, and its consent section predates `docs/CONSENT.md`. It also
+> quotes the owner's voice note verbatim, which was never meant for publication.
+
 # MM Desk — build contract
 
 What the user asked for, verbatim, and what that requires. No guessing beyond what is written
