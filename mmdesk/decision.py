@@ -204,8 +204,8 @@ def build_decision_card(
         )
     if not corpus_hits:
         falsifiers.append(
-            "No passage in this tenant's material covers the question, so the lens rests on the general "
-            "rules, not on a specific statement."
+            "No passage in this tenant's material covers the question — because none is loaded, "
+            "or none matched — so the lens rests on its general rules, not on a specific statement."
         )
 
     return Card(

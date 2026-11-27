@@ -168,8 +168,13 @@ class ApiError extends Error{
 async function api(path, options = {}){
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60000);
+  // Every call carries this browser's journal scope, so its calls land where its journal panel
+  // reads. A JSON body must be declared as JSON: without the header the server cannot read it,
+  // and it answers 422 however valid the form was.
+  const headers = Object.assign({ 'X-Journal-Id': JOURNAL_ID }, options.headers || {});
+  if (options.body != null && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
   try{
-    const res = await fetch(url(path), { ...options, signal: controller.signal });
+    const res = await fetch(url(path), Object.assign({}, options, { headers, signal: controller.signal }));
     const type = res.headers.get('content-type') || '';
     let body = null;
     if (type.includes('application/json')){
@@ -362,11 +367,15 @@ function renderOpinion(body){
       if (d.refused){ bodyEl.append(el('p', 'warn', d.reason || 'No opinion on incomplete data.')); return; }
       bodyEl.append(kv('Stance', d.stance || '—'));
       const by = String(d.generated_by || '');
-      const note = el('p', 'note', by.startsWith('deterministic template')
+      const isTemplate = by.startsWith('deterministic template');
+      bodyEl.append(el('p', 'note', isTemplate
         ? 'Template — no model wrote this.'
-        : 'AI-written (' + by + ').');
-      bodyEl.append(note, heading('Analysis'), el('p', null, d.analysis || ''));
-      bodyEl.append(heading('Lens reading (model-written from the cited passages, not the author\'s words)'));
+        : 'AI-written (' + by + ').'));
+      bodyEl.append(heading('Analysis'), el('p', null, d.analysis || ''));
+      // The heading must say who wrote the reading below it.
+      bodyEl.append(heading(isTemplate
+        ? 'Lens reading (template)'
+        : 'Lens reading (model-written from the cited passages — not the author\'s words)'));
       bodyEl.append(el('p', null, d.lens_opinion || ''));
       bodyEl.append(heading('Do the voices agree?'), el('p', null, d.agreement || ''));
       bodyEl.append(heading('What would prove this wrong'), el('p', null, d.falsifier || ''));
@@ -381,14 +390,17 @@ function renderOpinion(body){
 }
 
 // ---------------------------------------------------------------- journal
-async function loadJournal(){
+async function loadJournal(keepSummary){
   try{
     const d = await api('/api/journal');
-    const notes = [];
-    if (d.persistent === false) notes.push('Entries on this host are temporary: they disappear when the server restarts.');
-    if (d.damaged_lines) notes.push(d.damaged_lines + ' unreadable line(s) were set aside.');
-    $('#jsummary').textContent = d.count ? (d.count + ' entr' + (d.count === 1 ? 'y' : 'ies') + ' in this browser · horizons 30/90/180/365 days' + (notes.length ? ' · ' + notes.join(' ') : ''))
-                                         : ('No entries yet in this browser. Run an analysis and it is recorded here.' + (notes.length ? ' · ' + notes.join(' ') : ''));
+    // After a grade the explanation of that grade stays on screen; only the rows refresh.
+    if (!keepSummary){
+      const notes = [];
+      if (d.persistent === false) notes.push('Entries on this host are temporary: they disappear when the server restarts.');
+      if (d.damaged_lines) notes.push(d.damaged_lines + ' unreadable line(s) were set aside.');
+      $('#jsummary').textContent = d.count ? (d.count + ' entr' + (d.count === 1 ? 'y' : 'ies') + ' in this browser · horizons 30/90/180/365 days' + (notes.length ? ' · ' + notes.join(' ') : ''))
+                                           : ('No entries yet in this browser. Run an analysis and it is recorded here.' + (notes.length ? ' · ' + notes.join(' ') : ''));
+    }
     $('#jlist').innerHTML = '';
     d.entries.slice(-8).reverse().forEach(e => {
       const row = el('div', 'kv');
@@ -420,8 +432,8 @@ $('#grade').addEventListener('click', async () => {
     const excluded = Object.values(s).reduce((n, v) => n + (v.excluded ? v.excluded.no_position + v.excluded.corporate_action_flags : 0), 0);
     $('#jsummary').textContent = d.graded
       ? 'Graded ' + d.graded + ' entries. ' + parts.join(' · ') + (excluded ? ' · ' + excluded + ' excluded (no position, or a suspected corporate action)' : '')
-      : 'Nothing to grade yet. ' + (d.note || 'No horizon has closed since these calls were made.');
-    loadJournal();
+      : 'Nothing to grade yet. ' + (d.note || 'No horizon has closed since these calls were made: the shortest is 30 days, and a horizon is graded only once it has closed.');
+    loadJournal(true);
   }catch (err){ $('#jsummary').textContent = 'Grade failed: ' + explain(err); }
   finally{ btn.disabled = false; }
 });
@@ -502,7 +514,9 @@ $('#form').addEventListener('submit', async e => {
     const d = await post('/api/analyze', body);
     lastBody = body;
     render(d);
-    post('/api/scenario', {ticker: body.ticker}).then(renderCrowd).catch(() => {});
+    // The crowd must read the same facts as the card, valuation lines included.
+    post('/api/scenario', {ticker: body.ticker, green_line: body.green_line,
+                          red_line: body.red_line}).then(renderCrowd).catch(() => {});
     renderOpinion(body);
     loadJournal();
   }catch (err){ out.append(el('p', 'err', explain(err))); }

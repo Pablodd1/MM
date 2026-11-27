@@ -124,6 +124,18 @@ def test_the_page_has_the_accessibility_basics():
     assert "tabindex=\"-1\"" in PAGE and "out.focus()" in PAGE
 
 
+def test_every_request_from_the_page_declares_its_body_and_its_journal_scope():
+    """Found in a real browser, by nothing else. The page's request helper sent no Content-Type,
+    so the server could not read the JSON body and refused every Analyse with a 422 — and it did
+    not send the journal scope, so the panel never would have shown the browser's own calls. The
+    test client sets the header itself, which is why no other test caught it."""
+    helper = PAGE[PAGE.index("async function api("):PAGE.index("function explain(")]
+    assert "'Content-Type'" in helper and "application/json" in helper
+    assert "'X-Journal-Id': JOURNAL_ID" in helper
+    sent = helper[helper.index("fetch(url(path)"):]
+    assert "headers" in sent[:160], "the headers must reach fetch itself, not stop in a variable"
+
+
 @pytest.mark.parametrize("path", ["/", "/health"])
 def test_the_page_and_health_are_served(path):
     r = TestClient(service.app).get(path)
