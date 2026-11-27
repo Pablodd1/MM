@@ -1,15 +1,15 @@
-"""The persona, built so it cannot misquote him.
+"""The lens voice, built so it cannot misquote the material.
 
-The difference between this and a chatbot in his voice: the persona **quotes**. It selects
-the sentences he actually said, keeps them verbatim, and attaches the timestamp. It does not
-paraphrase, summarise, or infer what he "would" think.
+The difference between this and a chatbot in someone's voice: the lens **quotes**. It selects
+sentences the author actually said, keeps them verbatim, and attaches the timestamp. It does not
+paraphrase, summarise, or infer what the author "would" think.
 
 That choice is what makes fidelity measurable. A paraphrase can only be graded by opinion; a
-verbatim quote either appears in the transcript or it doesn't, and a number in it either
-appears or it doesn't. `eval/persona_fidelity.py` measures exactly that.
+verbatim quote either appears in the transcript or it doesn't, and a number in it either appears
+or it doesn't. `eval/persona_fidelity.py` measures exactly that.
 
-When the corpus has nothing, the persona says so. A "Simon says" that always has an answer is
-a horoscope; this one is allowed to be silent.
+When the tenant's material has nothing, the lens says so. A "Simon says" that always has an answer
+is a horoscope; this one is allowed to be silent.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ class Utterance:
             "supported_terms": self.supported_terms,
             "missing_terms": self.missing_terms,
             "note": self.note,
-            "attribution": "verbatim from the transcript — not a paraphrase",
+            "attribution": "verbatim from the material — not a paraphrase",
         }
 
 
@@ -71,7 +71,7 @@ def best_span(passage: str, question: str) -> str:
     """The best *contiguous* run of one or two sentences.
 
     Contiguity is not cosmetic. Joining the two best-scoring sentences from different parts of
-    a passage produces words he never said in that order — a fabricated quote built out of real
+    a passage produces words the author never said in that order — a fabricated quote built out of real
     fragments. Only adjacent sentences are ever combined, and the winner is scored as a unit.
     """
     # Every sentence stays in the list, including short ones. Filtering short sentences before
@@ -107,13 +107,13 @@ def speak(question: str, hits: list[dict]) -> Utterance:
             word = reason.split(":", 1)[1]
             text = (
                 f"He does not use the word “{word}” anywhere in the material transcribed so far, "
-                "so there is nothing of his to quote. That is a limit of the corpus, not a "
-                "statement about his view."
+                "so there is nothing of the author's to quote. That is a limit of the corpus, not a "
+                "statement about the author's view."
             )
         else:
             text = (
-                "No passage of his matched this closely enough to quote. The corpus covers part "
-                "of his channel, so silence here is not evidence of his opinion."
+                "No passage in the supplied material matched this closely enough to quote. The material covers "
+                "part of the subject, so silence here is not evidence of the author's opinion."
             )
         return Utterance(
             question=question, quote=text, video_id="", video_title="", stamp="", url="",
@@ -142,7 +142,7 @@ def speak(question: str, hits: list[dict]) -> Utterance:
         score=float(top.get("score", 0.0)),
         supported_terms=supported,
         missing_terms=missing,
-        note="quote only; the app does not put words in his mouth",
+        note="quote only; the app does not put words in the author's mouth",
     )
 
 

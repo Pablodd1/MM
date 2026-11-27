@@ -1,6 +1,6 @@
 """Assemble a decision card from the deterministic parts.
 
-The reconciler is the product: it states where Mark's lens and the standard lens
+The reconciler is the product: it states where the reference lens and the standard lens
 point in opposite directions, and which evidence would settle the argument. A
 single confident answer is a horoscope; two lenses that disagree, plus the test
 that decides between them, is a decision aid.
@@ -15,7 +15,7 @@ from .card import Card
 from .rules import Account, Setup
 
 
-def _mm_action(score: int, pct: float, alert: str, rr: float) -> tuple[str, str]:
+def _lens_action(score: int, pct: float, alert: str, rr: float) -> tuple[str, str]:
     if pct == 0:
         return "pass", f"alert {alert} with score {score}: no new exposure permitted."
     if score >= 8 and rr >= 2:
@@ -26,15 +26,15 @@ def _mm_action(score: int, pct: float, alert: str, rr: float) -> tuple[str, str]
 
 
 def reconcile(mm: dict, std: dict, alert: str) -> dict:
-    mm_bullish = mm.get("action") in ("add", "hold")
+    lens_bullish = mm.get("action") in ("add", "hold")
     std_bullish = std.get("action") == "favourable"
     std_bearish = std.get("action") == "unfavourable"
 
-    if mm_bullish and std_bearish:
+    if lens_bullish and std_bearish:
         return {
             "exists": True,
             "summary": (
-                "Mark's lens likes the odds; the standard lens is against it on "
+                "The reference lens likes the odds; the standard lens is against it on "
                 f"{std.get('charts_against')} of 3 measures."
             ),
             "tie_break": (
@@ -43,17 +43,17 @@ def reconcile(mm: dict, std: dict, alert: str) -> dict:
                 "the valuation, decides it."
             ),
         }
-    if not mm_bullish and std_bullish:
+    if not lens_bullish and std_bullish:
         return {
             "exists": True,
-            "summary": "The standard lens likes it; Mark's lens will not size it.",
+            "summary": "The standard lens likes it; the reference lens will not size it.",
             "tie_break": (
                 "That gap is the alert posture and the score, both of which are judgement. If you "
                 "take this trade you are overriding his risk rule — do it with money you would "
                 "write off, and log why."
             ),
         }
-    if mm_bullish and std_bullish:
+    if lens_bullish and std_bullish:
         return {
             "exists": False,
             "summary": "Both lenses agree the setup is favourable. Disagreement is absent, which "
@@ -81,7 +81,7 @@ def build_decision_card(
     score = rules.score_10(setup.component_scores)
     size = rules.size_position(setup, account)
     posture = rules.alert_posture(setup.alert, score)
-    action, reason = _mm_action(score, size["pct_of_equity"], setup.alert, setup.reward_risk)
+    action, reason = _lens_action(score, size["pct_of_equity"], setup.alert, setup.reward_risk)
 
     exits = rules.exit_signals(setup, score, unrealised_pct)
     if score_at_entry is not None:
@@ -101,10 +101,10 @@ def build_decision_card(
         }
     ]
 
-    mm_lens = {
+    lens = {
         "score_10": score,
         "proxy_score": score,
-        "score_label": "unvalidated proxy — not a statement by Mark Gomes",
+        "score_label": "unvalidated proxy — not a statement of opinion by the material's author",
         "components": setup.component_scores,
         "action": action,
         "position_pct": size["pct_of_equity"],
@@ -117,7 +117,7 @@ def build_decision_card(
         "capped_by": size.get("capped_by"),
     }
 
-    disagreement = reconcile(mm_lens, standard, setup.alert)
+    disagreement = reconcile(lens, standard, setup.alert)
 
     conf = "low"
     if grounding and not grounding.get("missing") and corpus_hits:
@@ -135,8 +135,8 @@ def build_decision_card(
         )
     if not corpus_hits:
         falsifiers.append(
-            "The corpus has no passage on this question, so the MM lens here rests on his general "
-            "rules, not on a specific statement of his."
+            "No passage in this tenant's material covers the question, so the lens rests on the general "
+            "rules, not on a specific statement."
         )
 
     return Card(
@@ -145,7 +145,7 @@ def build_decision_card(
         mode=setup.mode,
         verdict=action,
         verdict_reason=reason,
-        mm_lens=mm_lens,
+        lens=lens,
         standard_lens=standard,
         disagreement=disagreement,
         risk={

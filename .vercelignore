@@ -1,5 +1,6 @@
 # Never upload these to Vercel: they are large, local-only, or secret.
 audio/
+corpus/
 transcripts/
 .venv/
 runtime/

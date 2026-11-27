@@ -188,7 +188,7 @@ def test_grade_endpoint_uses_fetched_ohlc(tmp_path, monkeypatch):
             g.bars = bars
             return g
 
-    monkeypatch.setattr(service, "JOURNAL_PATH", journal_path)
+    monkeypatch.setattr(service, "_journal", lambda tenant: Journal(journal_path))
     monkeypatch.setattr(service, "Grounder", StubGrounder)
 
     r = TestClient(service.app).post("/api/journal/grade")

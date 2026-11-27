@@ -1,7 +1,7 @@
-"""Money Mark rule engine — his published method as deterministic code.
+"""Rule engine — a published method expressed as deterministic code.
 
 Every rule here traces to a timestamp in the corpus. The LLM may explain what
-this module returns; it may never compute these values itself. Where Mark gives no
+this module returns; it may never compute these values itself. Where the method gives no
 threshold (the alert trigger), the trigger is an explicit user input, not an
 invented constant.
 """
@@ -109,7 +109,7 @@ class Setup:
 def score_10(component_scores: dict[str, int]) -> int:
     """Composite 1-10 score: the half-up rounded mean of the component scores.
 
-    Mark's own description is a chart judgement, not an arithmetic sum. We expose
+    The author's own description is a chart judgement, not an arithmetic sum. We expose
     the components so two raters can disagree visibly, and we clamp to 1..10
     because a 0 would mean "no score", not "worst score".
 
@@ -330,7 +330,7 @@ def alert_posture(alert: Alert, score: int) -> dict:
                 "citations": [CITATIONS["yellow_alert"]]}
     if alert == "orange":
         return {"size_allowed": False, "min_score": 99,
-                "note": "Market almost certainly going down: favourites only, hedge 1:1.",
+                "note": "Authoret almost certainly going down: favourites only, hedge 1:1.",
                 "citations": [CITATIONS["orange_hedge"]]}
     return {"size_allowed": False, "min_score": 99,
             "note": "Red: he knows what is happening and how severe it is. Cash.",

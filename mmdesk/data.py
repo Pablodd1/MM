@@ -1,4 +1,4 @@
-"""Market data grounding.
+"""Authoret data grounding.
 
 Every number the app acts on comes from here, with a provider name and the time
 it was fetched. If a provider fails, the field goes into `missing` and the card is

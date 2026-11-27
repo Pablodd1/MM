@@ -23,6 +23,23 @@ def corpus() -> Corpus:
     return Corpus()
 
 
+@pytest.fixture(scope="module")
+def tenant_id() -> str:
+    """A tenant whose material is this repository's corpus. The default tenant has none."""
+    from mmdesk import tenants
+
+    tid = "testcorpus"
+    if tenants.get(tid) is None:
+        tenants.create(tid, "Test corpus")
+    conn = tenants._connect()
+    try:
+        conn.execute("UPDATE tenants SET corpus_dir = ? WHERE id = ?", (str(ROOT / "corpus"), tid))
+        conn.commit()
+    finally:
+        conn.close()
+    return tid
+
+
 def absent_word(corpus: Corpus) -> str:
     for word in ABSENT_CANDIDATES:
         if corpus.df.get(word, 0) == 0:
@@ -81,22 +98,22 @@ def test_every_golden_answerable_item_is_served(corpus):
         assert corpus.search(item["question"]), f"{item['id']} should return passages"
 
 
-def test_shim_reports_the_reason(monkeypatch):
+def test_shim_reports_the_reason(monkeypatch, tenant_id):
     from mmdesk import retrieval_shim
 
-    monkeypatch.setattr(retrieval_shim, "_cache", None)
-    corpus = retrieval_shim._corpus()
+    monkeypatch.setattr(retrieval_shim, "_cache", {})
+    corpus = retrieval_shim._corpus(tenant_id)
     word = absent_word(corpus)
-    assert retrieval_shim.search(f"what does he think about {word}") == []
-    assert retrieval_shim.refusal_reason() == f"vocabulary_absent:{word}"
+    assert retrieval_shim.search(f"what does he think about {word}", tenant_id=tenant_id) == []
+    assert retrieval_shim.refusal_reason(tenant_id) == f"vocabulary_absent:{word}"
 
 
-def test_shim_caches_the_index(monkeypatch):
+def test_shim_caches_the_index(monkeypatch, tenant_id):
     from mmdesk import retrieval_shim
 
-    monkeypatch.setattr(retrieval_shim, "_cache", None)
-    first = retrieval_shim._corpus()
-    second = retrieval_shim._corpus()
+    monkeypatch.setattr(retrieval_shim, "_cache", {})
+    first = retrieval_shim._corpus(tenant_id)
+    second = retrieval_shim._corpus(tenant_id)
     assert first is second
 
 
@@ -118,17 +135,17 @@ def test_persona_quotes_verbatim_from_the_passage(corpus):
     assert utt.stamp == hits[0].stamp
 
 
-def test_persona_refuses_a_topic_never_spoken(corpus, monkeypatch):
+def test_persona_refuses_a_topic_never_spoken(corpus, monkeypatch, tenant_id):
     from mmdesk import persona, retrieval_shim
 
-    monkeypatch.setattr(retrieval_shim, "_cache", None)
+    monkeypatch.setattr(retrieval_shim, "_cache", {})
     word = absent_word(corpus)
     question = f"what does he think about {word}"
-    hits = retrieval_shim.search(question)
+    hits = retrieval_shim.search(question, tenant_id=tenant_id)
     utt = persona.speak(question, hits)
     assert hits == []
     assert utt.refused is True
-    assert word in utt.quote.lower()
+    assert "no passage" in utt.quote.lower()
 
 
 def test_persona_never_stitches_non_adjacent_sentences():
@@ -160,11 +177,12 @@ def test_persona_numbers_come_from_the_quote():
     assert persona.numbers_in(utt.quote) <= persona.numbers_in(text)
 
 
-def test_persona_endpoint_returns_attribution():
+def test_lens_endpoint_returns_attribution(tenant_id):
     from fastapi.testclient import TestClient
     from mmdesk import service
 
-    r = TestClient(service.app).post("/api/persona", json={"question": "what is the three point rule"})
+    r = TestClient(service.app).post("/api/lens", json={"question": "what is the three point rule"},
+                                     headers={"X-Tenant": tenant_id})
     assert r.status_code == 200
     body = r.json()
     assert body["attribution"].startswith("verbatim")

@@ -91,13 +91,13 @@ You do not compute anything and you never write numerals. Not one digit: no pric
 percentages, no scores, no dates, no counts. Refer to quantities in words ("the computed
 score", "the stated risk budget") and let the deterministic layer supply the figures.
 
-You are not Mark Gomes and must never claim to speak for him or know his positions. You may
-say what the corpus passages show he has said, citing only the passages given.
+You are not the author of the supplied material and must never claim to speak for them or know
+their positions. You may say only what the supplied passages show, citing those passages.
 
 Write plainly, in complete sentences, with no hype and no promises about returns.
 Return ONLY a JSON object with exactly these keys:
   "verdict_reason": one sentence explaining the verdict that was computed for you,
-  "mm_narrative": 2-4 sentences on what the MM lens shows and which cited rule drives it,
+  "lens_narrative": 2-4 sentences on what the Reference lens shows and which cited rule drives it,
   "standard_narrative": 2-4 sentences on the conventional read,
   "disagreement": 1-3 sentences naming the conflict and what evidence settles it,
   "caveat": one sentence on the biggest thing that could make this wrong.
@@ -133,13 +133,13 @@ def contains_digits(output: str) -> bool:
 
 def template_narrative(card: dict) -> dict:
     """Deterministic fallback — used when no key is set or the model misbehaves."""
-    mm = card.get("mm_lens") or {}
+    mm = card.get("lens") or {}
     std = card.get("standard_lens") or {}
     dis = card.get("disagreement") or {}
     return {
         "verdict_reason": card.get("verdict_reason") or "",
-        "mm_narrative": (
-            f"MM lens scores this {mm.get('score_10', '?')}/10 and would "
+        "lens_narrative": (
+            f"Reference lens scores this {mm.get('score_10', '?')}/10 and would "
             f"{mm.get('action', '?')}. Sizing follows the score, capped at "
             f"{(mm.get('position_pct') or 0) * 100:.1f}% of equity."
         ),
@@ -163,7 +163,7 @@ def narrate(card: dict, corpus_hits: list[dict], config: LLMConfig | None = None
         "instrument": card.get("instrument"),
         "mode": card.get("mode"),
         "verdict": card.get("verdict"),
-        "mm_lens": card.get("mm_lens"),
+        "lens": card.get("lens"),
         "standard_lens": card.get("standard_lens"),
         "disagreement": card.get("disagreement"),
         "risk": card.get("risk"),
@@ -208,7 +208,7 @@ def narrate(card: dict, corpus_hits: list[dict], config: LLMConfig | None = None
             data = json.loads(content)
 
             prose = " ".join(str(data.get(k, "")) for k in
-                             ("verdict_reason", "mm_narrative", "standard_narrative",
+                             ("verdict_reason", "lens_narrative", "standard_narrative",
                               "disagreement", "caveat"))
             if contains_digits(prose):
                 last_error = "model emitted numerals"

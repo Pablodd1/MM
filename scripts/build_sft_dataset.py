@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from mmdesk import rubric, rules                      # noqa: E402
-from mmdesk.decision import _mm_action                # noqa: E402
+from mmdesk.decision import _lens_action                # noqa: E402
 from mmdesk.opinion import api_key, BASE, MODEL       # noqa: E402
 
 OUT = ROOT / "data" / "sft-cases.jsonl"
@@ -74,7 +74,7 @@ def sample_case(rng: random.Random, idx: int) -> dict:
                             cash_pct=cash_pct, min_cash_pct=0.0,
                             commission_per_share=0.0, slippage_bps=0.0)
     size = rules.size_position(setup, account)
-    action, reason = _mm_action(score, size["pct_of_equity"], alert, setup.reward_risk)
+    action, reason = _lens_action(score, size["pct_of_equity"], alert, setup.reward_risk)
 
     return {
         "id": idx,
@@ -163,11 +163,14 @@ def main() -> int:
     ap.add_argument("--batch", type=int, default=10)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--dry-run", action="store_true", help="engine reasons only, no API calls")
-    ap.add_argument("--out", default=str(OUT))
+    ap.add_argument("--tenant", default="", help="write data/<tenant>/sft-cases.jsonl")
+    ap.add_argument("--out", default="")
     args = ap.parse_args()
+    if not args.out:
+        args.out = str(Path("data") / args.tenant / "sft-cases.jsonl") if args.tenant else str(OUT)
 
     if not args.dry_run and not api_key():
-        print("no key found at ~/.config/mmdesk/llm.key and MMDESK_LLM_KEY unset")
+        print("no model key configured (MMDESK_LLM_KEY or ~/.config/decisiondesk/llm.key)")
         return 2
 
     rng = random.Random(args.seed)

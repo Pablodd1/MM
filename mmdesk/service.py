@@ -1,9 +1,14 @@
-"""MM Desk HTTP service.
+"""Decision Desk HTTP service.
 
 One endpoint does the work: POST /api/analyze takes a question and a ticker, grounds
 the numbers, runs both lenses, reconciles them, writes the narrative and journals the
 card. Everything it returns is either fetched, computed, or cited — and the response
 says which.
+
+Everything is per-tenant. A tenant is identified by the ``X-Tenant`` header (or ``?tenant=``),
+never inferred. The default tenant has no material and no adapter, so the product stands on the
+deterministic engine alone; a tenant becomes specific only when it uploads material and, if it
+wants one, trains a Layer 2 adapter that must pass its own gate before it can be called.
 
 Run:  uvicorn mmdesk.service:app --port 8791
 """
@@ -27,6 +32,7 @@ from pydantic import BaseModel, Field, model_validator
 from . import rules
 from . import rubric
 from . import persona as persona_mod
+from . import tenants as tenant_mod
 from . import conversation as conversation_mod
 from . import scenarios as scenario_mod
 from . import voice as voice_mod
@@ -37,7 +43,7 @@ from .journal import Journal, summary
 from .llm import LLMConfig, narrate, template_narrative
 from .opinion import opinion as op_opinion
 from .retrieval_shim import (ambiguous, corpus_available, corpus_coverage, search,
-                             passage_count, search)
+                             passage_count)
 from .rules import Account, Setup
 from .standard import atr, range_position, realised_vol, standard_lens, trend_score
 
@@ -59,8 +65,24 @@ JOURNAL_EPHEMERAL = bool(os.environ.get("VERCEL"))
 JOURNAL_PATH = DATA_DIR / "journal.jsonl"
 STATIC = Path(__file__).resolve().parent / "static"
 
-app = FastAPI(title="MM Desk", version=VERSION,
+app = FastAPI(title="Decision Desk", version=VERSION,
               description="Decision support built on attributed rules, with cited sources.")
+
+
+def _tenant_from(http_request: Request) -> tenant_mod.Tenant:
+    """Resolve the tenant, or refuse. An unknown id is never quietly treated as the default."""
+    tid = (http_request.headers.get("X-Tenant")
+           or http_request.query_params.get("tenant")
+           or tenant_mod.DEFAULT_TENANT)
+    t = tenant_mod.get(tid)
+    if t is None:
+        raise HTTPException(404, detail={"error": "unknown_tenant", "tenant": tid,
+                                         "note": "Create the tenant before sending requests for it."})
+    return t
+
+
+def _journal(tenant: tenant_mod.Tenant) -> Journal:
+    return Journal(tenant.journal_path())
 
 # --- minimal abuse protection: 30 requests / minute / client -------------------
 RATE_LIMIT = int(os.environ.get("MMDESK_RATE_LIMIT", "30"))
@@ -112,21 +134,30 @@ class OpinionRequest(AnalyzeRequest):
 
 @app.get("/health")
 def health() -> dict[str, Any]:
+    from . import opinion as opinion_mod
+
+    tenant_mod.ensure_default()
+    default = tenant_mod.get(tenant_mod.DEFAULT_TENANT)
+    assert default is not None
     cfg = LLMConfig.from_env()
     return {
         "ok": True,
         "version": VERSION,
-        "corpus": {"available": corpus_available(), "passages": passage_count()},
+        "tenant": default.id,
+        "corpus": {"available": corpus_available(default.id), "passages": passage_count(default.id)},
         "llm": {
             "configured": cfg.configured,
             "cloud_enabled": os.environ.get("MMDESK_ALLOW_CLOUD_LLM") == "1",
             "model": cfg.model if cfg.configured else None,
+            "layer2": ("adapter" if default.active_adapter else
+                       ("hosted" if opinion_mod.available(default) else "template")),
         },
-        "corpus_coverage": corpus_coverage(),
+        "corpus_coverage": corpus_coverage(default.id),
+        "tenants": [t.public() for t in tenant_mod.all_tenants()],
         "vision": {"configured": bool(os.environ.get("VISION_API_KEY"))},
         "intraday_supported": intraday_supported(),
         "voice": voice_mod.status(),
-        "journal_entries": len(Journal(JOURNAL_PATH).all()),
+        "journal_entries": len(_journal(default).all()),
         "journal_persistent": not JOURNAL_EPHEMERAL,
         "data_dir": str(DATA_DIR),
     }
@@ -171,8 +202,11 @@ def _days_to_earnings(ts: Any) -> int | None:
         return None
 
 
-def _build_response(request: AnalyzeRequest, request_id: str) -> dict:
+def _build_response(request: AnalyzeRequest, request_id: str,
+                    tenant: tenant_mod.Tenant | None = None) -> dict:
     """Ground, score, reconcile, journal. Shared by the text and voice endpoints."""
+    tenant = tenant or tenant_mod.get(tenant_mod.DEFAULT_TENANT)
+    assert tenant is not None
     grounder = Grounder()
     g = grounder.ground(request.ticker)
     if g.bars is None:
@@ -229,7 +263,8 @@ def _build_response(request: AnalyzeRequest, request_id: str) -> dict:
         allow_fractional_shares=request.allow_fractional_shares,
     )
 
-    hits = search(f"{request.question} {request.ticker}", k=5) if request.question else search(request.ticker, k=5)
+    hits = (search(f"{request.question} {request.ticker}", k=5, tenant_id=tenant.id)
+            if request.question else search(request.ticker, k=5, tenant_id=tenant.id))
 
     card = build_decision_card(
         question=request.question or f"Analyse {request.ticker}",
@@ -244,7 +279,8 @@ def _build_response(request: AnalyzeRequest, request_id: str) -> dict:
         "voice": voice_mod.status(),
         },
     )
-    card.mm_lens["score_meta"] = score_meta
+    card.lens["score_meta"] = score_meta
+    card.lens["label"] = tenant.lens_label
     if request.mode == "intraday" and not intraday_supported():
         card.falsifiers.append(
             "Intraday mode ran on daily data: the free feed is delayed, so any intraday "
@@ -255,7 +291,7 @@ def _build_response(request: AnalyzeRequest, request_id: str) -> dict:
     if not hits:
         from .retrieval_shim import refusal_reason as _refusal
 
-        data["corpus_refusal"] = _refusal()
+        data["corpus_refusal"] = _refusal(tenant.id)
     allow_cloud = os.environ.get("MMDESK_ALLOW_CLOUD_LLM") == "1"
     # The opinion is always shown. Without a model it is composed deterministically from the
     # card's own fields and labelled as such; with one, the model writes the prose and is
@@ -272,7 +308,7 @@ def _build_response(request: AnalyzeRequest, request_id: str) -> dict:
     card.narrative = data["narrative"]
 
     try:
-        entry = Journal(JOURNAL_PATH).append(card.to_dict() | {"narrative": data["narrative"]})
+        entry = _journal(tenant).append(card.to_dict() | {"narrative": data["narrative"]})
         data["journal_id"] = entry.id
     except ValueError as exc:
         data["journal_error"] = str(exc)
@@ -282,9 +318,10 @@ def _build_response(request: AnalyzeRequest, request_id: str) -> dict:
         "data_timestamp": g.as_of,
         "market_data_source": ", ".join(sorted({str(x.get("provider")) for x in g.sources})) or "none",
         "market_data_delay": "daily bars, not real-time",
-        "corpus_coverage": corpus_coverage(),
+        "corpus_coverage": corpus_coverage(tenant.id),
         "rules_version": VERSION,
         "rubric_version": (score_meta or {}).get("source", "unknown"),
+        "tenant": tenant.id,
         "llm_provider": (
             f"{LLMConfig.from_env().provider} / {LLMConfig.from_env().model}"
             if allow_cloud and LLMConfig.from_env().configured else "none (template)"
@@ -292,6 +329,12 @@ def _build_response(request: AnalyzeRequest, request_id: str) -> dict:
         "missing_fields": g.missing,
         "disclaimer_version": VERSION,
     }
+    try:
+        tenant_mod.record_decision(tenant.id, data.get("journal_id") or request_id,
+                                   request.ticker.upper(), data.get("verdict", ""), data)
+    except Exception as exc:  # noqa: BLE001 - audit write must not break the card
+        data.setdefault("observability", {})["audit_error"] = str(exc)
+
     data["markdown"] = card.to_markdown()
     return data
 
@@ -302,7 +345,8 @@ def analyze(request: AnalyzeRequest, http_request: Request) -> JSONResponse:
     if not _rate_ok(client):
         raise HTTPException(429, detail={"error": "rate_limited",
                                          "limit_per_minute": RATE_LIMIT})
-    return JSONResponse(_build_response(request, uuid.uuid4().hex[:16]))
+    tenant = _tenant_from(http_request)
+    return JSONResponse(_build_response(request, uuid.uuid4().hex[:16], tenant))
 
 
 @app.post("/api/voice")
@@ -320,6 +364,7 @@ def voice(
     if not _rate_ok(client):
         raise HTTPException(429, detail={"error": "rate_limited",
                                          "limit_per_minute": RATE_LIMIT})
+    tenant = _tenant_from(http_request)
 
     raw = audio.file.read()
     if not raw:
@@ -375,7 +420,7 @@ def voice(
         )
         request_id = uuid.uuid4().hex[:16]
         try:
-            data = _build_response(req, request_id)
+            data = _build_response(req, request_id, tenant)
         except HTTPException as exc:
             spoken = ("I could not get market data for that ticker, so I will not guess. "
                       "The card stops rather than inventing a price.")
@@ -441,10 +486,11 @@ def voice_selftest(http_request: Request) -> JSONResponse:
             raise HTTPException(501, detail={"error": "voice_not_available", "note": str(exc)})
         routed = voice_mod.route(transcript)
         request_id = uuid.uuid4().hex[:16]
+        tenant = _tenant_from(http_request)
         data = _build_response(
             AnalyzeRequest(question=routed["question"], ticker=routed["ticker"] or "NVDA",
                            account_equity=50_000),
-            request_id,
+            request_id, tenant,
         )
         spoken = voice_mod.reply_text(data)
         t1 = time.perf_counter()
@@ -460,8 +506,9 @@ def voice_selftest(http_request: Request) -> JSONResponse:
 
 
 @app.get("/api/journal")
-def journal_list() -> dict[str, Any]:
-    entries = Journal(JOURNAL_PATH).all()
+def journal_list(http_request: Request) -> dict[str, Any]:
+    tenant = _tenant_from(http_request)
+    entries = _journal(tenant).all()
     return {
         "count": len(entries),
         "summary": summary(entries),
@@ -475,7 +522,7 @@ def journal_list() -> dict[str, Any]:
 
 
 @app.post("/api/journal/score")
-def journal_score(payload: dict[str, Any]) -> dict[str, Any]:
+def journal_score(payload: dict[str, Any], http_request: Request) -> dict[str, Any]:
     """Grade entries against a supplied price series: {ticker: [[date, close], ...]}."""
     series = payload.get("prices") or {}
     def _row(item):
@@ -486,11 +533,12 @@ def journal_score(payload: dict[str, Any]) -> dict[str, Any]:
         return [str(item[0])] + [float(x) for x in item[1:5]]
 
     cleaned = {k.upper(): [_row(i) for i in v] for k, v in series.items() if isinstance(v, list)}
-    entries = Journal(JOURNAL_PATH).score_entries(cleaned)
+    tenant = _tenant_from(http_request)
+    entries = _journal(tenant).score_entries(cleaned)
     return {"scored": sum(1 for e in entries if e.outcomes), "summary": summary(entries)}
 
 
-class PersonaRequest(BaseModel):
+class LensRequest(BaseModel):
     question: str = Field(..., min_length=2, max_length=500)
 
 
@@ -558,16 +606,27 @@ def crowd_talk(request: CrowdRequest) -> dict[str, Any]:
     return out
 
 
-@app.post("/api/persona")
-def persona_ask(request: PersonaRequest, http_request: Request) -> dict[str, Any]:
-    """What did he actually say about this? Verbatim quote with a timestamp, or a refusal."""
+@app.post("/api/lens")
+@app.post("/api/lens/quote")
+def lens_quote(request: LensRequest, http_request: Request) -> dict[str, Any]:
+    """What the tenant's own material says: a verbatim quote with a timestamp, or a refusal.
+
+    This is the only endpoint that may put sentences in the author's voice, and it does so by
+    selecting a contiguous run of words from one cited passage — never by generating them.
+    """
     client = http_request.client.host if http_request.client else "unknown"
     if not _rate_ok(client):
         raise HTTPException(429, detail={"error": "rate_limited"})
-    hits = search(request.question, k=5)
+    tenant = _tenant_from(http_request)
+    hits = search(request.question, k=5, tenant_id=tenant.id)
     payload = persona_mod.speak(request.question, hits).to_dict()
-    payload["ambiguous"] = ambiguous(request.question)
-    payload["coverage"] = corpus_coverage()
+    payload["ambiguous"] = ambiguous(request.question, tenant.id)
+    payload["coverage"] = corpus_coverage(tenant.id)
+    payload["tenant"] = tenant.id
+    payload["lens_label"] = tenant.lens_label
+    if not hits:
+        payload["note"] = ("No material is loaded for this tenant, or nothing in it covers the "
+                           "question. The lens refuses rather than inventing a position.")
     return payload
 
 
@@ -584,7 +643,8 @@ def journal_grade(http_request: Request) -> dict[str, Any]:
     if not _rate_ok(client):
         raise HTTPException(429, detail={"error": "rate_limited"})
 
-    journal = Journal(JOURNAL_PATH)
+    tenant = _tenant_from(http_request)
+    journal = _journal(tenant)
     entries = journal.all()
     if not entries:
         return {"graded": 0, "note": "no journal entries yet"}
@@ -642,6 +702,7 @@ def chart_upload(
     client = http_request.client.host if http_request.client else "unknown"
     if not _rate_ok(client):
         raise HTTPException(429, detail={"error": "rate_limited"})
+    tenant = _tenant_from(http_request)
 
     raw = file.file.read() if file is not None else b""
     if len(raw) > 5 * 1024 * 1024:
@@ -667,7 +728,7 @@ def chart_upload(
                          support=support, target=target, green_line=green_line,
                          red_line=red_line, account_equity=account_equity,
                          risk_pct=risk_pct)
-    data = _build_response(req, uuid.uuid4().hex[:16])
+    data = _build_response(req, uuid.uuid4().hex[:16], tenant)
     data["chart"] = {
         "image_received": bool(raw),
         "bytes": len(raw),
@@ -682,22 +743,25 @@ def api_opinion(request: OpinionRequest, http_request: Request):
     """The MM Opinion button: the model's reading of a card that was already computed.
 
     It runs the same analysis so the model sees the numbers the page shows, then asks for two
-    voices — the disciplined analysis and Mark's, grounded in the retrieved passages. Nothing the
+    voices — the disciplined analysis and the material's, grounded in the retrieved passages. Nothing the
     model returns is treated as a number; callers render figures from the card.
     """
     client = http_request.client.host if http_request.client else "unknown"
     if not _rate_ok(client):
         raise HTTPException(429, detail={"error": "rate_limited", "limit_per_minute": RATE_LIMIT})
 
-    card = _build_response(request, uuid.uuid4().hex[:16])
+    tenant = _tenant_from(http_request)
+    card = _build_response(request, uuid.uuid4().hex[:16], tenant)
     if card.get("verdict") == "INCOMPLETE":
         return JSONResponse({"available": True, "refused": True,
                              "reason": "the card is incomplete; no opinion on missing data",
                              "generated_by": "none"}, status_code=200)
 
-    hits = search(request.question, k=4) if request.question else []
-    result = op_opinion(card, hits)
+    hits = search(request.question, k=4, tenant_id=tenant.id) if request.question else []
+    result = op_opinion(card, hits, tenant=tenant)
     result["available"] = True
+    result["tenant"] = tenant.id
+    result["lens_label"] = tenant.lens_label
     result["citations"] = [
         {"video_id": h.get("video_id"), "stamp": h.get("stamp"),
          "video_title": h.get("video_title"), "url": h.get("url"), "text": h.get("text")}
@@ -706,9 +770,78 @@ def api_opinion(request: OpinionRequest, http_request: Request):
     return JSONResponse(result)
 
 
+# --- tenancy ------------------------------------------------------------------
+class TenantCreate(BaseModel):
+    id: str = Field(..., pattern=r"^[a-zA-Z0-9_-]{2,32}$")
+    name: str = Field(..., min_length=1, max_length=80)
+    lens_label: str | None = Field(None, max_length=60)
+
+
+def _require_admin(http_request: Request) -> None:
+    """Admin actions are loopback-only unless an explicit token is configured.
+
+    A tenant id in a header is an address, not a credential; without this check anyone who can
+    reach the service could create tenants or activate an adapter that never passed its gate.
+    """
+    token = os.environ.get("MMDESK_ADMIN_TOKEN", "")
+    if token:
+        if http_request.headers.get("X-Admin-Token") != token:
+            raise HTTPException(401, detail={"error": "admin_token_required"})
+        return
+    client = http_request.client.host if http_request.client else ""
+    if client not in ("127.0.0.1", "::1", "localhost", "testclient"):
+        raise HTTPException(403, detail={"error": "admin_loopback_only",
+                                         "note": "Set MMDESK_ADMIN_TOKEN to administer remotely."})
+
+
+@app.get("/api/tenants")
+def tenants_list() -> dict[str, Any]:
+    return {"count": len(tenant_mod.all_tenants()),
+            "tenants": [t.public() for t in tenant_mod.all_tenants()]}
+
+
+@app.post("/api/tenants")
+def tenants_create(payload: TenantCreate, http_request: Request) -> dict[str, Any]:
+    _require_admin(http_request)
+    if tenant_mod.get(payload.id) is not None:
+        raise HTTPException(409, detail={"error": "tenant_exists", "tenant": payload.id})
+    t = tenant_mod.create(payload.id, payload.name, payload.lens_label)
+    return t.public()
+
+
+@app.post("/api/tenants/{tenant_id}/adapter/activate")
+def adapter_activate(tenant_id: str, http_request: Request,
+                     force: bool = False) -> dict[str, Any]:
+    """Promote a trained adapter only if its own recorded evaluation clears the bar."""
+    _require_admin(http_request)
+    if force:
+        token = os.environ.get("MMDESK_ADMIN_TOKEN", "")
+        if not token or http_request.headers.get("X-Admin-Token") != token:
+            raise HTTPException(403, detail={"error": "force_requires_admin_token"})
+    try:
+        adapter = tenant_mod.activate_adapter(tenant_id, require_gate=not force)
+    except KeyError as exc:
+        raise HTTPException(404, detail={"error": "unknown_tenant", "tenant": tenant_id}) from exc
+    except ValueError as exc:
+        raise HTTPException(409, detail={"error": "gate_failed", "detail": str(exc)}) from exc
+    return {"tenant": tenant_id, "adapter": adapter}
+
+
+@app.post("/api/tenants/{tenant_id}/adapter")
+def adapter_register(tenant_id: str, payload: dict[str, Any], http_request: Request) -> dict[str, Any]:
+    """Record a trained candidate. It stays inert: activation is a separate, gated call."""
+    _require_admin(http_request)
+    if tenant_mod.get(tenant_id) is None:
+        raise HTTPException(404, detail={"error": "unknown_tenant", "tenant": tenant_id})
+    payload = dict(payload)
+    payload.setdefault("status", "candidate")
+    tenant_mod.set_adapter(tenant_id, payload)
+    return {"tenant": tenant_id, "adapter": payload}
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     page = STATIC / "index.html"
     if page.exists():
         return page.read_text(encoding="utf-8")
-    return f"<h1>MM Desk {VERSION}</h1><p>{DISCLAIMER}</p>"
+    return f"<h1>Decision Desk {VERSION}</h1><p>{DISCLAIMER}</p>"

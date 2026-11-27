@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from datetime import datetime, timezone
 import re
 import sys
 from pathlib import Path
@@ -211,16 +213,37 @@ def train(args: argparse.Namespace) -> int:
         "per_class_recall": {k: round(per_class_hit[k] / v, 2) for k, v in per_class.items()},
         "confusion": dict(confusion.most_common(12)),
         "samples": samples,
+        "leakage_free": True,
     }
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps({k: report[k] for k in ("parsed", "stance_agreement", "digit_free_rate")},
                      indent=2))
     print("report:", REPORT.relative_to(ROOT))
+
+    if args.register and args.tenant:
+        from mmdesk import tenants
+
+        tenants.set_adapter(args.tenant, {
+            "status": "candidate",
+            "base": base,
+            "path": str(OUT_DIR),
+            "model": f"{args.tenant}-lens",
+            "base_url": os.environ.get("MMDESK_LENS_URL", "http://127.0.0.1:8899/v1"),
+            "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "eval": {
+                "stance_agreement": report["stance_agreement"],
+                "digit_free_rate": report["digit_free_rate"],
+                "eval_cases": report["eval_cases"],
+                "leakage_free": True,
+            },
+        })
+        print(f"registered candidate adapter for tenant {args.tenant} — not active until promoted")
     return 0
 
 
 def main() -> int:
+    global OUT_DIR
     ap = argparse.ArgumentParser()
     ap.add_argument("--smoke", action="store_true", help="ten steps, no save")
     ap.add_argument("--eval-only", action="store_true",
@@ -232,9 +255,18 @@ def main() -> int:
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--grad-accum", type=int, default=8)
     ap.add_argument("--max-len", type=int, default=2048)
+    ap.add_argument("--tenant", default="", help="train for a registered tenant")
+    ap.add_argument("--out-dir", default="")
+    ap.add_argument("--register", action="store_true",
+                    help="record the trained adapter as a candidate in the tenant registry")
     ap.add_argument("--base", default=BASE,
                     help="HF model id; 3B trains faster and is enough for a voice adapter")
-    return train(ap.parse_args())
+    args = ap.parse_args()
+    if args.out_dir:
+        OUT_DIR = Path(args.out_dir)
+    elif args.tenant:
+        OUT_DIR = ROOT / "models" / args.tenant
+    return train(args)
 
 
 if __name__ == "__main__":

@@ -12,10 +12,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 DISCLAIMER = (
-    "Educational tool, not investment advice. Built with Mark Gomes's permission; rules are "
-    "attributed to his public statements and scores are a documented proxy, not his own "
-    "rating. He is not responsible for this app's output and may enter, exit or reverse any "
-    "position without notice. Verify every number before acting."
+    "Educational tool, not investment advice. Rules are computed deterministically from stated "
+    "inputs; the lens score is a documented proxy, not a rating by any person. Positions may be "
+    "entered, exited or reversed without notice. Verify every number before acting."
 )
 
 VERSION = "0.1.0"
@@ -49,7 +48,7 @@ class Card:
     mode: str = "swing"
     verdict: str = ""
     verdict_reason: str = ""
-    mm_lens: dict[str, Any] = field(default_factory=dict)
+    lens: dict[str, Any] = field(default_factory=dict)
     standard_lens: dict[str, Any] = field(default_factory=dict)
     disagreement: dict[str, Any] = field(default_factory=dict)
     risk: dict[str, Any] = field(default_factory=dict)
@@ -70,11 +69,11 @@ class Card:
         lines = [f"# {self.instrument} — {self.mode}", "", f"**Verdict:** {self.verdict}"]
         if self.verdict_reason:
             lines.append(f"_{self.verdict_reason}_")
-        if self.mm_lens:
-            lines += ["", "## MM lens (proxy score)",
-                      f"Score **{self.mm_lens.get('score_10', '?')}/10**; "
-                      f"action **{self.mm_lens.get('action', '?')}**"]
-            for c in self.mm_lens.get("cited_rules", []):
+        if self.lens:
+            lines += ["", "## Reference lens (proxy score)",
+                      f"Score **{self.lens.get('score_10', '?')}/10**; "
+                      f"action **{self.lens.get('action', '?')}**"]
+            for c in self.lens.get("cited_rules", []):
                 lines.append(f"- rule `{c.get('rule')}` — [{c.get('stamp', '')}]({c.get('url', '')})")
         if self.standard_lens:
             sl = self.standard_lens

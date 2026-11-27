@@ -192,7 +192,7 @@ def test_card_requires_grounded_numbers_and_carries_disclaimer():
         standard=std, grounding={"as_of": "2026-11-24T00:00:00Z", "missing": []},
     )
     assert isinstance(card, Card)
-    assert card.mm_lens["score_10"] == 8
+    assert card.lens["score_10"] == 8
     assert card.risk["invalidation"] == 92
     assert card.disclaimer.startswith("Educational tool")
     assert "not investment advice" in card.to_markdown().lower()
@@ -215,7 +215,7 @@ def test_card_without_corpus_hits_says_so():
                   component_scores={"a": 5})
     card = build_decision_card(question="?", setup=setup, account=Account(equity=10_000),
                                standard=standard_lens(_bars([100, 101, 102])))
-    assert any("no passage" in f for f in card.falsifiers)
+    assert any("no passage" in f.lower() for f in card.falsifiers)
 
 
 def test_citation_builds_deep_link():
@@ -324,7 +324,7 @@ def test_digit_detection_catches_spelled_and_unicode():
 def test_template_narrative_is_used_without_a_key(monkeypatch):
     from mmdesk.llm import LLMConfig, narrate
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    out = narrate({"verdict": "hold", "mm_lens": {}, "standard_lens": {}, "falsifiers": []}, [])
+    out = narrate({"verdict": "hold", "lens": {}, "standard_lens": {}, "falsifiers": []}, [])
     assert "template" in out["generated_by"]
 
 
@@ -388,9 +388,9 @@ def test_chart_with_typed_levels_runs_the_analysis(monkeypatch):
     from fastapi.testclient import TestClient
     from mmdesk import service
 
-    monkeypatch.setattr(service, "_build_response", lambda req, rid: {
+    monkeypatch.setattr(service, "_build_response", lambda req, rid, tenant=None: {
         "instrument": req.ticker, "verdict": "hold", "risk": {"invalidation": req.support},
-        "observability": {}, "standard_lens": {"price": 100.0}, "mm_lens": {"score_10": 5},
+        "observability": {}, "standard_lens": {"price": 100.0}, "lens": {"score_10": 5},
     })
     r = TestClient(service.app).post(
         "/api/chart",
@@ -401,3 +401,38 @@ def test_chart_with_typed_levels_runs_the_analysis(monkeypatch):
     body = r.json()
     assert body["chart"]["numbers_from"] == "typed levels only"
     assert body["chart"]["image_received"] is True
+
+
+def test_template_opinion_is_never_empty(monkeypatch):
+    """A visitor must see an opinion even with no model key and no cloud opt-in."""
+    from fastapi.testclient import TestClient
+    from mmdesk import service
+    from mmdesk.standard import Bars
+
+    class G:
+        bars = Bars(close=[100 + i * 0.4 for i in range(120)],
+                    high=[101 + i * 0.4 for i in range(120)],
+                    low=[99 + i * 0.4 for i in range(120)],
+                    open=[100 + i * 0.4 for i in range(120)],
+                    dates=[f"2026-01-{i%28+1:02d}" for i in range(120)], source="stub")
+        fundamentals: dict = {}
+        missing: list = []
+        errors: list = []
+        as_of = "2026-03-01"
+        sources = [{"provider": "stub"}]
+
+        def __init__(self, *a, **k):
+            pass
+
+        def ground(self, ticker, fundamentals=True):
+            return G()
+
+    monkeypatch.setattr(service, "Grounder", G)
+    monkeypatch.delenv("MMDESK_ALLOW_CLOUD_LLM", raising=False)
+    body = TestClient(service.app).post("/api/analyze", json={
+        "ticker": "TEST", "question": "is this a buy", "account_equity": 50000,
+        "risk_pct": 0.01}).json()
+    n = body["narrative"]
+    assert n["lens_narrative"], "the MM opinion must render without a model"
+    assert n["standard_narrative"]
+    assert "template" in n["generated_by"]

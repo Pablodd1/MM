@@ -34,7 +34,7 @@ def test_reply_uses_only_card_fields():
         "instrument": "NVDA", "verdict": "hold",
         "standard_lens": {"price": 153.43},
         "risk": {"shares": 16, "invalidation": 123.88},
-        "mm_lens": {"score_10": 6},
+        "lens": {"score_10": 6},
     }
     text = voice.reply_text(card)
     assert "NVDA" in text and "153.43" in text and "16 shares" in text and "123.88" in text
@@ -45,7 +45,7 @@ def test_reply_says_no_position_when_size_is_zero():
     card = {"instrument": "AAPL", "verdict": "pass",
             "standard_lens": {"price": 350.7},
             "risk": {"shares": 0, "invalidation": 323.45},
-            "mm_lens": {"score_10": 1}}
+            "lens": {"score_10": 1}}
     text = voice.reply_text(card)
     assert "zero" in text and "350.70" in text
 
@@ -77,14 +77,14 @@ def test_voice_endpoint_runs_the_loop(monkeypatch):
 
     calls = {}
 
-    def fake_build(request, request_id):
+    def fake_build(request, request_id, tenant=None):
         calls["ticker"] = request.ticker
         calls["question"] = request.question
         return {
             "instrument": request.ticker, "verdict": "hold",
             "standard_lens": {"price": 100.0},
             "risk": {"shares": 5, "invalidation": 90.0},
-            "mm_lens": {"score_10": 7},
+            "lens": {"score_10": 7},
             "observability": {},
         }
 

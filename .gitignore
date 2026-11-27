@@ -26,6 +26,14 @@ warm*.log
 voice*.wav
 err*.txt
 
-# The demo needs cited passages; the index is committed, raw audio is not.
-!corpus/passages.jsonl
-!corpus/video-meta.json
+# Tenant material is local. A public repo is not the place for someone else's words.
+corpus/
+.vercel
+
+# quotes him at length; local training data only
+corpus/decision-episodes.jsonl
+
+# generated training data and adapters
+data/
+models/
+trainenv/
