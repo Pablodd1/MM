@@ -1,4 +1,4 @@
-"""Standard (non-persona) analysis: valuation, trend, momentum, volatility.
+"""Standard (non-lens) analysis: valuation, trend, momentum, volatility.
 
 Deterministic maths over fetched numbers. No model involvement, and no number is
 invented here — every figure arrives as an argument and its source is carried
@@ -8,7 +8,7 @@ through to the output.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from statistics import mean, pstdev
+from statistics import mean, median, pstdev
 from typing import Sequence
 
 
@@ -138,7 +138,7 @@ def valuation_percentile(current: float, history: Sequence[float]) -> dict:
         "n": len(history),
         "min": round(min(history), 2),
         "max": round(max(history), 2),
-        "median": round(mean(sorted(history)), 2),
+        "median": round(median(history), 2),
     }
 
 
@@ -151,15 +151,19 @@ def standard_lens(bars: Bars, valuation: dict | None = None) -> dict:
     price = bars.close[-1]
 
     bullish = bull_bear = 0
+    measures = 1                      # the trend score always exists
     if tr["score"] > 0:
         bullish += 1
     elif tr["score"] < 0:
         bull_bear += 1
-    if mo.get("available") and mo["return"] > 0:
-        bullish += 1
-    elif mo.get("available"):
-        bull_bear += 1
+    if mo.get("available"):
+        measures += 1
+        if mo["return"] > 0:
+            bullish += 1
+        else:
+            bull_bear += 1
     if valuation and valuation.get("available"):
+        measures += 1
         if valuation["percentile"] <= 0.33:
             bullish += 1
         elif valuation["percentile"] >= 0.67:
@@ -186,6 +190,9 @@ def standard_lens(bars: Bars, valuation: dict | None = None) -> dict:
         "atr_pct_of_price": round(a / price, 4) if a else None,
         "charts_supported": bullish,
         "charts_against": bull_bear,
+        # How many of the three measures could actually be evaluated. With no valuation history
+        # only two exist, so "x of 3 measures" overstated what was read.
+        "measures_evaluated": measures,
         "price": price,
         "source": bars.source,
     }

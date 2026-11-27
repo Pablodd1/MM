@@ -67,7 +67,7 @@ def _value(f: Facts) -> View:
         return View("Value investor", "buy below fair value", "hold", 0.4,
                     f"price is mid-band (score {s:.1f}/10): neither cheap nor stretched")
     return View("Value investor", "buy below fair value", "trim", _clamp((5 - s) / 5),
-                f"price is above the expensive line (score {s:.1f}/10)")
+                f"price is at or above the expensive line (score {s:.1f}/10)")
 
 
 def _momentum(f: Facts) -> View:
@@ -87,7 +87,7 @@ def _risk(f: Facts) -> View:
                     f"annualised volatility {f.volatility:.0%} is above the risk budget")
     if f.drawdown <= -0.25:
         return View("Risk manager", "survive first", "trim", 0.65,
-                    f"{f.drawdown:.0%} below the 60-bar high: position is already losing")
+                    f"{f.drawdown:.0%} below the 60-bar high: a position taken there is losing")
     if f.volatility >= 0.4:
         return View("Risk manager", "survive first", "hold", 0.5,
                     f"volatility {f.volatility:.0%}: hold, size down")
@@ -98,7 +98,7 @@ def _risk(f: Facts) -> View:
 def _cash(f: Facts) -> View:
     if f.score_10 is not None and f.score_10 < 5:
         return View("Cash holder", "get paid to wait", "hold", 0.6,
-                    "cash yields more than a stretched price: no reason to add")
+                    "a stretched price on the supplied bands: this style sees no reason to add")
     if f.range_pos >= 0.8:
         return View("Cash holder", "get paid to wait", "trim", 0.55,
                     "price is in the top fifth of its range: taking some off is reasonable")
@@ -108,19 +108,23 @@ def _cash(f: Facts) -> View:
 
 def _growth(f: Facts) -> View:
     if f.trend > 0 and (f.score_10 is None or f.score_10 >= 4):
-        return View("Growth buyer", "pay for expansion", "add", _clamp(0.4 + f.momentum * 3),
-                    "uptrend and not obviously overvalued on the supplied bands")
+        # No valuation claim is made when no bands were supplied.
+        why = ("uptrend and not obviously overvalued on the supplied bands"
+               if f.score_10 is not None else "uptrend; no valuation bands supplied")
+        return View("Growth buyer", "pay for expansion", "add", _clamp(0.4 + f.momentum * 3), why)
     return View("Growth buyer", "pay for expansion", "hold", 0.35,
                 "trend or valuation does not justify adding")
 
 
 def _contrarian(f: Facts) -> View:
     if f.drawdown <= -0.3 and (f.score_10 is None or f.score_10 >= 6):
-        return View("Contrarian", "buy fear", "add", _clamp(abs(f.drawdown)),
-                    f"{abs(f.drawdown):.0%} drawdown into a cheap valuation")
+        why = f"{abs(f.drawdown):.0%} drawdown" + (
+            " into a cheap valuation" if f.score_10 is not None else ", no valuation bands supplied"
+        )
+        return View("Contrarian", "buy fear", "add", _clamp(abs(f.drawdown)), why)
     if f.range_pos >= 0.9:
         return View("Contrarian", "buy fear", "trim", 0.5,
-                    "everyone is long at the top of the range")
+                    "price is in the top tenth of its range")
     return View("Contrarian", "buy fear", "hold", 0.3, "no dislocation to exploit")
 
 

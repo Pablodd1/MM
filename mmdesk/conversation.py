@@ -1,7 +1,7 @@
 """Persona simulation that mirrors social feedback — without a language model per agent.
 
 The difference between this and a pile of independent rules: agents **talk to each other**.
-Each round, an agent reads two neighbours' current stances and may move toward them, weighted
+Each round, an agent reads its neighbours' current stances and may move toward them, weighted
 by how much it trusts its neighbours and how strongly it holds its own view. That is the
 mechanism MiroFish-style engines try to capture — social influence — and it can be run with
 arithmetic instead of tokens.
@@ -9,20 +9,20 @@ arithmetic instead of tokens.
 What it simulates: how a crowd's opinion drifts when opinions are contagious.
 What it does not simulate: conversation, argument, new information, or prices.
 
-**Measured behaviour, and it is the opposite of what the first version assumed.** DeGroot-style
-linear averaging (each agent moves toward the mean of its neighbours) does *not* polarise at any
-trust weight — it always converges to consensus, and the only question is how much of the crowd's
-original majority survives. Polarisation needs a **bounded-confidence** rule: opinions that are
-too far apart are rejected rather than averaged. Both models are here, both are measured, and the
-difference is reported rather than claimed.
+**Measured behaviour.** DeGroot-style linear averaging (each agent moves toward the mean of its
+neighbours) converges to consensus whenever the pull is at most the whole gap — that is, when
+``trust * (1 - conviction) <= 1``, which holds for every trust weight the API accepts unless an
+agent's conviction is near zero. Above that the update overshoots and oscillates instead.
+
+Bounded confidence is different: opinions more than ``tolerance`` apart are rejected rather than
+averaged, so a crowd that starts apart stays apart. A larger ``tolerance`` makes agents *more*
+open. Neither model can split a crowd that starts together. Both are here, and the difference is
+reported rather than claimed.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
-# Stance as a continuous position so influence is arithmetic. Reporting maps back to words.
-STANCE_VALUE = {"add": 1.0, "hold": 0.0, "trim": -1.0, "pass": 0.0}
+from dataclasses import dataclass, field, replace
 
 
 def _label(value: float) -> str:
@@ -64,15 +64,14 @@ def run(agents: list[Agent], rounds: int, topology: str = "ring",
     """One round = everyone reads their neighbours, then everyone updates simultaneously.
 
     `model="averaging"` is DeGroot consensus. `model="bounded_confidence"` ignores neighbours
-    whose position is more than `tolerance` away — the rule that makes camps possible.
-    Larger `tolerance` counts as *less* tolerant, i.e. it only ever makes agents more open.
+    whose position is more than `tolerance` away — the rule that lets a crowd stay split.
+
+    The agents passed in are left as they were; the simulation works on copies.
     """
     if model not in MODELS:
         raise ValueError(f"unknown model: {model}")
+    agents = [replace(a, trust=trust, path=[a.value]) for a in agents]
     neighbours = _network(agents, topology)
-    for a in agents:
-        a.trust = trust
-        a.path = [a.value]
     for _ in range(rounds):
         new_values = []
         for i, agent in enumerate(agents):

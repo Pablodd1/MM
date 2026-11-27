@@ -59,8 +59,19 @@ def test_dispersion_is_reported_and_bounded():
 def test_output_carries_the_label_and_the_limits():
     out = run(facts())
     assert out["label"] == DISCLAIMER
+    assert len(out["what_this_is_not"]) == 4
     assert any("not a forecast" in x for x in out["what_this_is_not"])
-    assert out["observability_safe"] if "observability_safe" in out else True
+    assert "observability" not in out, "the pure function adds no request state"
+
+
+def test_no_valuation_claim_is_made_without_bands():
+    """"into a cheap valuation" was asserted when no valuation bands had been supplied."""
+    without = run(facts(score_10=None, trend=2, drawdown=-0.4))
+    reasons = " ".join(v["reason"] for v in without["views"])
+    assert "cheap valuation" not in reasons
+    assert "overvalued" not in reasons
+    with_bands = run(facts(score_10=7.0, trend=2, drawdown=-0.4))
+    assert any("cheap valuation" in v["reason"] for v in with_bands["views"])
 
 
 def test_high_volatility_alone_makes_the_risk_manager_trim():

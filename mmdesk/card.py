@@ -60,6 +60,8 @@ class Card:
     created_at: str = field(default_factory=_now)
     version: str = VERSION
     disclaimer: str = DISCLAIMER
+    # A consent or attribution line that belongs to one tenant, never to the product.
+    attribution: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -96,5 +98,8 @@ class Card:
         if self.falsifiers:
             lines += ["", "## What would prove this wrong"]
             lines += [f"- {f}" for f in self.falsifiers]
-        lines += ["", "---", f"_{self.disclaimer}_"]
+        lines += ["", "---"]
+        if self.attribution:
+            lines.append(f"_{self.attribution}_")
+        lines.append(f"_{self.disclaimer}_")
         return "\n".join(lines)
