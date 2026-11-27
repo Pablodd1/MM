@@ -1,7 +1,8 @@
 """Local push-to-talk voice loop: Whisper in, Kokoro out.
 
-Everything runs on this machine. No audio leaves it, no cloud model is called, and no voice
-clone is involved — Kokoro ships with its own licensed voices.
+Everything runs on the machine that hosts the service. No cloud model is called, and no voice
+clone is involved — Kokoro ships with its own licensed voices. When the service is not on
+localhost, the recording does travel to the server that transcribes it; the UI says so.
 
 The rule from the rest of the app still holds: the text that gets spoken is rendered from
 typed card fields, never from a language model. The model may write prose; it may not write
@@ -11,6 +12,7 @@ numbers, and it certainly may not speak them.
 from __future__ import annotations
 
 import io
+import logging
 import os
 import re
 import shutil
@@ -22,7 +24,9 @@ from pathlib import Path
 
 import numpy as np
 
-VOICE_DIR = Path(os.environ.get("MMDESK_VOICE_DIR", r"C:\Users\GAMEPOWER\tools\tts-local"))
+log = logging.getLogger("mmdesk.voice")
+
+VOICE_DIR = Path(os.environ.get("MMDESK_VOICE_DIR", str(Path.home() / "tools" / "tts-local")))
 KOKORO_MODEL = VOICE_DIR / "kokoro-v1.0.onnx"
 KOKORO_VOICES = VOICE_DIR / "voices-v1.0.bin"
 
@@ -84,10 +88,11 @@ def _to_wav16k(src: Path, dst: Path) -> None:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise VoiceUnavailable("ffmpeg not found on PATH; cannot decode the upload")
+    # -t bounds the decode: a long upload used to be decoded in full and only then rejected.
     proc = subprocess.run(
-        [ffmpeg, "-y", "-loglevel", "error", "-i", str(src),
+        [ffmpeg, "-y", "-loglevel", "error", "-i", str(src), "-t", str(MAX_SECONDS),
          "-ac", "1", "-ar", "16000", "-f", "wav", str(dst)],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=120,
     )
     if proc.returncode != 0:
         raise ValueError(f"could not decode audio: {proc.stderr.strip()[:200]}")
@@ -151,11 +156,15 @@ def to_mp3(wav: bytes) -> bytes | None:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return None
-    proc = subprocess.run(
-        [ffmpeg, "-y", "-loglevel", "error", "-i", "pipe:0",
-         "-codec:a", "libmp3lame", "-b:a", "64k", "-f", "mp3", "pipe:1"],
-        input=wav, capture_output=True,
-    )
+    try:
+        proc = subprocess.run(
+            [ffmpeg, "-y", "-loglevel", "error", "-i", "pipe:0",
+             "-codec:a", "libmp3lame", "-b:a", "64k", "-f", "mp3", "pipe:1"],
+            input=wav, capture_output=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("mp3 conversion failed, returning WAV: %s", exc)
+        return None
     return proc.stdout if proc.returncode == 0 and proc.stdout else None
 
 
@@ -168,25 +177,36 @@ COMPANIES = {
     "palantir": "PLTR", "marvell": "MRVL", "micron": "MU", "broadcom": "AVGO",
     "netflix": "NFLX", "salesforce": "CRM", "oracle": "ORCL", "coinbase": "COIN",
 }
+# All-caps words that are ordinary speech, not symbols. "DD" (due diligence) used to be heard
+# as a ticker.
 STOPWORDS = {
     "BUY", "SELL", "HOLD", "ADD", "TRIM", "STOP", "WHAT", "THIS", "THAT", "HERE",
     "NOW", "GOOD", "BAD", "THE", "AND", "FOR", "ARE", "YOU", "CAN", "HOW", "WHY",
     "AI", "CEO", "IPO", "ETF", "GDP", "FED", "USD", "OK", "YES", "NO", "IS", "IT",
+    "DD", "PM", "AM", "ET", "USA", "UK", "EU", "CFO", "CTO", "COO", "FOMC", "CPI",
+    "YOY", "EPS", "ROI", "PC", "TV", "EV", "PE", "PB", "IR", "IRAs",
 }
 
 
 def route(transcript: str) -> dict:
-    """Pull a ticker and the question out of what was actually said."""
+    """Pull a ticker and the question out of what was actually said.
+
+    When several names are heard, the first one wins: "I bought Apple and sold Microsoft" is
+    about Apple. The names used to be checked in dictionary order.
+    """
     text = transcript.strip()
     ticker = None
     m = TICKER_RE.search(text)
     if m:
         ticker = m.group(1).upper()
     if ticker is None:
+        found = None
         for word, sym in COMPANIES.items():
-            if re.search(rf"\b{word}\b", text, re.IGNORECASE):
-                ticker = sym
-                break
+            hit = re.search(rf"\b{word}\b", text, re.IGNORECASE)
+            if hit and (found is None or hit.start() < found[0]):
+                found = (hit.start(), sym)
+        if found:
+            ticker = found[1]
     if ticker is None:
         # Only 2-5 letter all-caps tokens: a lone "I" or "A" is a word, not a symbol.
         for token in re.findall(r"\b[A-Z]{2,5}\b", text):
@@ -201,12 +221,13 @@ def reply_text(card: dict) -> str:
     """One or two spoken sentences, rendered from typed fields only.
 
     Every figure here is read off the card the deterministic layer produced — nothing is
-    invented, and nothing is paraphrased by a model.
+    invented, and nothing is paraphrised by a model. The card's lens block is `lens`; this read
+    `mm_lens`, a key the card stopped carrying, so every reply said "score unknown".
     """
     instrument = card.get("instrument", "the name")
     price = (card.get("standard_lens") or {}).get("price")
     risk = card.get("risk") or {}
-    mm = card.get("mm_lens") or {}
+    lens = card.get("lens") or {}
     shares = risk.get("shares", 0)
     stop = risk.get("invalidation")
     verdict = card.get("verdict", "")
@@ -215,12 +236,15 @@ def reply_text(card: dict) -> str:
         return f"{x:,.{places}f}" if isinstance(x, (int, float)) else "an unknown level"
 
     if not shares:
+        # The sizer's own reason: zero shares follows from the alert, the budget, the cash cap
+        # or the score's cap, and only one of those is true of this card.
+        reason = (lens.get("reason") or "no position is permitted").rstrip(".")
         return (
-            f"{instrument} is at {num(price)}. The read is {verdict}, but the size comes back "
-            f"zero: the stop is too wide for that risk budget. Nothing to do here."
+            f"{instrument} is at {num(price)}. The read is {verdict}, and the size comes back "
+            f"zero: {reason}. Nothing to do here."
         )
     return (
         f"{instrument} is at {num(price)}. The read is {verdict}, proxy score "
-        f"{mm.get('score_10', 'unknown')} out of ten. Size is {shares} shares with invalidation "
+        f"{lens.get('score_10', 'unknown')} out of ten. Size is {shares} shares with invalidation "
         f"at {num(stop)}. The stop decides, not the opinion."
     )

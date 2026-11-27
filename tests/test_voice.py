@@ -30,6 +30,8 @@ def test_route_returns_none_without_a_name():
 
 
 def test_reply_uses_only_card_fields():
+    """The spoken reply is rendered from the card. It read `mm_lens`, a key the card stopped
+    carrying, so a real card always produced "score unknown"."""
     card = {
         "instrument": "NVDA", "verdict": "hold",
         "standard_lens": {"price": 153.43},
@@ -38,7 +40,7 @@ def test_reply_uses_only_card_fields():
     }
     text = voice.reply_text(card)
     assert "NVDA" in text and "153.43" in text and "16 shares" in text and "123.88" in text
-    assert "ten" in text
+    assert "score 6 out of ten" in text and "unknown" not in text
 
 
 def test_reply_says_no_position_when_size_is_zero():
@@ -48,6 +50,30 @@ def test_reply_says_no_position_when_size_is_zero():
             "lens": {"score_10": 1}}
     text = voice.reply_text(card)
     assert "zero" in text and "350.70" in text
+
+
+def test_zero_share_reply_gives_the_cards_own_reason():
+    """Zero shares was always explained as a too-wide stop, whatever had actually bound."""
+    card = {"instrument": "AAPL", "verdict": "pass",
+            "standard_lens": {"price": 350.7},
+            "risk": {"shares": 0, "invalidation": 323.45},
+            "lens": {"score_10": 1, "reason": "no new exposure: alert=orange, score=1"}}
+    text = voice.reply_text(card)
+    assert "alert=orange" in text and "stop is too wide" not in text
+
+
+def test_route_hears_the_first_name_not_the_first_in_the_dictionary():
+    assert voice.route("I bought Apple and sold Microsoft")["ticker"] == "AAPL"
+    assert voice.route("should I sell Microsoft and buy Nvidia")["ticker"] == "MSFT"
+
+
+def test_route_does_not_hear_acronyms_as_tickers():
+    assert voice.route("should I do my DD on robinhood")["ticker"] is None
+    assert voice.route("should I buy USA stocks now")["ticker"] is None
+
+
+def test_voice_default_model_directory_is_not_one_person_s_path():
+    assert "GAMEPOWER" not in str(voice.VOICE_DIR)
 
 
 def test_voice_endpoint_rejects_empty_upload():
@@ -77,7 +103,8 @@ def test_voice_endpoint_runs_the_loop(monkeypatch):
 
     calls = {}
 
-    def fake_build(request, request_id, tenant=None):
+    def fake_build(request, request_id, tenant=None, **kwargs):
+        assert kwargs.get("journal_scope") is None
         calls["ticker"] = request.ticker
         calls["question"] = request.question
         return {
