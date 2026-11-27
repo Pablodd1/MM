@@ -64,7 +64,8 @@ def test_the_page_reads_those_fields_by_their_current_names():
     for token in ("d.lens", "lens.score_10", "lens.score_meta", "n.lens_narrative",
                   "n.standard_narrative", "d.lens_opinion", "d.generated_by", "g.price_bar",
                   "d.corpus_refusal", "g.level_notes", "sl.measures_evaluated",
-                  "r.reward_risk_gross", "d.attribution", "h.synthetic"):
+                  "r.reward_risk_gross", "d.attribution", "h.synthetic",
+                  "LENS_LABEL", "What would ' + LENS_LABEL + ' do?'"):
         assert token in PAGE, token
     for stale in ("mm_lens", "mm_opinion", "mm_narrative", "35 hours",
                   "run locally on this machine"):
@@ -72,10 +73,28 @@ def test_the_page_reads_those_fields_by_their_current_names():
     assert not re.search(r"\b(Mark|Gomes|he|his|him)\b", PAGE), "the page attributes to a person"
 
 
+def test_the_opinion_heading_is_branded_from_the_tenant_record():
+    """The second-opinion panel asks "What would X do?" with X coming from the tenant's own
+    record, so a tenant can be presented under a persona's name without any name being
+    hard-coded into the shipped page. The shipped default keeps the generic heading."""
+    assert "What would ' + LENS_LABEL + ' do?'" in PAGE
+    assert "!== 'House lens'" in PAGE
+    assert not re.search(r"(?i)money\s*mark|gomes", PAGE)
+
+
+def test_the_page_offers_plain_english_starting_questions():
+    """A visitor who is not a trader should not have to guess what the question box is for."""
+    assert "EXAMPLE_QUESTIONS" in PAGE and "renderExamples" in PAGE
+    for question in ("I already own this stock. Should I add, hold, or trim?",
+                     "My position has doubled. Should I sell half?",
+                     "How much of my account should one position use?"):
+        assert question in PAGE, question
+    assert "Tap one to fill the box" in PAGE
+
+
 def test_the_default_form_is_submittable():
     """`value="50000" min="1" step="1000"` is a step mismatch, so the browser refused to submit
-    page is a step mismatch, so the browser refused to submit its own defaults. A number input's
-    valid values are `min + k * step`."""
+    the page's own defaults. A number input's valid values are `min + k * step`."""
 
     def attribute(attrs, name):
         found = re.search(name + r'="([^"]*)"', attrs)

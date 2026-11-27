@@ -53,6 +53,9 @@
   .ophead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
   .ophead h2{margin:0;border:0;padding:0}
   .opbtn{width:auto;margin:0}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{width:auto;margin:0;min-height:36px;padding:6px 12px;font:inherit;font-size:13px;background:var(--field);color:var(--text);border:1px solid var(--line);border-radius:999px;cursor:pointer}
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
 </style>
 </head>
 <body>
@@ -70,6 +73,8 @@
     <form class="panel" id="form" aria-describedby="hint">
       <label for="q">Question</label>
       <textarea id="q" placeholder="Is NVDA a buy here? Should I trim after doubling?">Is this a buy here, with a stop under support?</textarea>
+      <div class="chips" id="chips" aria-label="Example questions"></div>
+      <p class="note" style="margin:6px 0 0">Tap one to fill the box, then edit it to what you actually want to ask.</p>
 
       <label for="ticker">Ticker</label>
       <input id="ticker" value="NVDA" autocomplete="off" maxlength="12" required>
@@ -143,6 +148,9 @@ const out = $('#out');
 const params = new URLSearchParams(location.search);
 // A tenant is an address, not a secret: it may be named in the page URL.
 const TENANT = /^[a-z0-9_-]{2,32}$/.test(params.get('tenant') || '') ? params.get('tenant') : '';
+// The tenant's own lens name ("Acme", …). It comes from the tenant record on the
+// server — never hard-coded here — so the second-opinion panel can ask "What would X do?".
+let LENS_LABEL = '';
 
 function journalId(){
   // Each browser keeps its own journal under an identifier only it knows.
@@ -346,7 +354,12 @@ function renderCrowd(d){
 function renderOpinion(body){
   const box = el('div', 'opinion');
   const head = el('div', 'ophead');
-  head.append(heading('Second opinion'));
+  // The tenant names its lens; the question "What would X do?" is the tenant's own branding,
+  // rendered from the record. The shipped default stays generic.
+  const opinionTitle = (LENS_LABEL && LENS_LABEL !== 'House lens')
+    ? 'What would ' + LENS_LABEL + ' do?'
+    : 'Second opinion';
+  head.append(heading(opinionTitle));
   const btn = el('button', 'secondary opbtn', 'Ask for a second opinion');
   btn.type = 'button';
   head.append(btn);
@@ -356,6 +369,11 @@ function renderOpinion(body){
   bodyEl.append(el('p', 'note', llm.configured && llm.cloud_enabled
     ? 'When you ask, this card is sent to the configured model provider.'
     : 'No model is configured on this host, so you get a deterministic reading, labelled as such.'));
+  if (LENS_LABEL){
+    bodyEl.append(el('p', 'note', 'The lens voice reads the passages that matched this question, and '
+      + 'says so when they are silent. It is a computed reading in the lens\'s framework — never that '
+      + 'person\'s own words.'));
+  }
   box.append(bodyEl);
   out.append(box);
 
@@ -495,6 +513,26 @@ async function sendVoice(){
 let lastBody = null;
 let HEALTH = {llm: {}};
 
+// Plain-English starting points. A visitor who is not a trader should never have to guess
+// what this box is for.
+const EXAMPLE_QUESTIONS = [
+  'Is NVDA a buy here, with a stop under support?',
+  'I already own this stock. Should I add, hold, or trim?',
+  'My position has doubled. Should I sell half?',
+  'How much of my account should one position use?',
+  'Am I too late to buy after this run-up?',
+];
+
+(function renderExamples(){
+  const box = $('#chips');
+  EXAMPLE_QUESTIONS.forEach(q => {
+    const chip = el('button', 'chip', q);
+    chip.type = 'button';
+    chip.addEventListener('click', () => { $('#q').value = q; $('#q').focus(); });
+    box.append(chip);
+  });
+})();
+
 function number(id){ const v = $(id).value.trim(); return v === '' ? null : Number(v); }
 
 $('#form').addEventListener('submit', async e => {
@@ -540,7 +578,8 @@ $('#form').addEventListener('submit', async e => {
     }
     try{
       const t = await api('/api/tenants/' + (TENANT || 'default'));
-      $('#tag').textContent = t.lens_label ? 'risk/reward decision support · ' + t.lens_label : 'risk/reward decision support';
+      LENS_LABEL = t.lens_label || '';
+      $('#tag').textContent = LENS_LABEL ? 'risk/reward decision support · ' + LENS_LABEL : 'risk/reward decision support';
       if(t.attribution){
         $('#notice').append(' ' + t.attribution);
         $('#foot').append(' ' + t.attribution);

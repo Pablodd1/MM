@@ -125,6 +125,37 @@ machine.
 A key whose prefix is not recognised is not sent anywhere until you name the endpoint:
 `sk-` is shared by several vendors, and guessing would hand one of them another's key.
 
+## Showing it as "What would Money Mark do?" (the mm tenant)
+
+The shipped page names no one. A tenant can present itself under a persona's name, because the
+second-opinion heading, the lens heading and the attribution line all render from the tenant
+record — no name is hard-coded anywhere in the source. The tenant is data:
+
+```bash
+# 1. the tenant record carries the consent line
+python -c "from mmdesk import tenants; tenants.create('mm', 'Money Mark', 'Money Mark', \
+  'Built with Money Mark\'s permission; he is not responsible for its output.')"
+# 2. the material becomes the lens (verbatim quotes with timestamps)
+python scripts/ingest_corpus.py --tenant mm --src corpus/mm-source.jsonl --title "Money Mark — published videos"
+# 3. open the page as that tenant
+#    http://127.0.0.1:8791/?tenant=mm
+```
+
+Then the page reads "Money Mark (proxy score)", the second-opinion panel asks "What would
+Money Mark do?", the card quotes his actual passages with clickable timestamps, and the
+attribution line appears in the banner. The lens quotes verbatim or refuses; a question about
+something the material never covers is refused by name, not answered by invention.
+
+**This demo is local-first.** The corpus is un-gitted by design, and on a serverless host the
+tenant registry does not persist — so the branded experience works on a machine that holds the
+material, while the public deployment stays generic. A hosted branded demo needs either the
+owner's decision to ship the corpus (public) or a host with persistent storage.
+
+**The fine-tuned adapter ("trained on his material")** is a separate step — see Layer 2 below.
+The retrieval lens needs no training: it quotes. The adapter learns the *decision framework*
+and requires the GPU training environment; the pipeline is documented and repaired, but the
+training and serving scripts have not been executed end to end on the review machine.
+
 ## Deployment
 
 `asgi.py` is the Vercel entrypoint (declared in `pyproject.toml`); `requirements.txt` carries
