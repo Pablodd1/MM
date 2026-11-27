@@ -26,10 +26,10 @@ import math
 import os
 import threading
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field, fields
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Iterable
 
 HORIZONS_DAYS = (30, 90, 180, 365)
 UNFETCHED = "unspecified"   # price_source of an outcome no provider produced

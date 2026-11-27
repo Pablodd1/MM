@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from mmdesk import decision, rubric, rules
+from mmdesk import rubric, rules
 from mmdesk.decision import build_decision_card, reconcile
 from mmdesk.rules import Account, Setup
 from mmdesk.standard import Bars, standard_lens
@@ -124,29 +124,34 @@ def test_reward_risk_is_gross_when_no_costs_are_supplied():
 
 # ---------------------------------------------------------------- one score per card
 
-def test_a_card_carries_one_score():
+@pytest.mark.parametrize("support,trend,days", [
+    (99, 1, 30), (98.5, 1, 30), (95, -3, 3), (99.5, 0, None), (97, 3, 7),
+])
+def test_a_card_carries_one_score(support, trend, days):
     """The rubric rounded one way and the rule engine another, so `score_meta.score_10` could
     read six beside a lens score of seven."""
-    for comps in ({"support_proximity": 8, "reward_risk": 5, "trend_quality": 7, "event_risk": 6},
-                  {"support_proximity": 6, "reward_risk": 6, "trend_quality": 8, "event_risk": 6},
-                  {"support_proximity": 10, "reward_risk": 10, "trend_quality": 8, "event_risk": 6}):
-        scored = rubric.score(rubric.RubricInputs(
-            price=100, support=99, target=120, atr=1.0, trend_score=1, days_to_earnings=30))
-        assert scored["score_10"] == rules.score_10(scored["components"])
+    scored = rubric.score(rubric.RubricInputs(price=100, support=support, target=120, atr=1.0,
+                                              trend_score=trend, days_to_earnings=days))
+    assert scored["score_10"] == rules.score_10(scored["components"])
 
 
 def test_rubric_composite_rounds_half_up_like_the_rule_engine():
-    scored = rubric.score(rubric.RubricInputs(price=100, support=99, target=120, atr=1.0,
+    """A mean that lands exactly on a half. Banker's rounding would send this one down to the
+    even number below; the rule engine rounds it up, and the two must agree."""
+    scored = rubric.score(rubric.RubricInputs(price=100, support=98.5, target=120, atr=1.0,
                                               trend_score=1, days_to_earnings=30))
     total = sum(scored["components"].values())
-    if total % 4 == 2:                                   # a mean ending in .5
-        assert scored["score_10"] == total // 4 + 1
+    assert total % 4 == 2, "this case must sit on a half for the test to mean anything"
+    assert scored["score_10"] == total // 4 + 1 == 9
 
 
 def test_fair_value_rounds_halves_up():
     """Between lines of 1 and 91 the raw score is 10 - (price - 1) / 10, so a price ending
     in 6 lands exactly on a half. Banker's rounding sends those halves down to the even number."""
-    score = lambda price: rubric.fair_value_score(price, green_line=1, red_line=91)["score_10"]
+
+    def score(price):
+        return rubric.fair_value_score(price, green_line=1, red_line=91)["score_10"]
+
     assert score(36) == 7          # raw 6.5, not 6
     assert score(56) == 5          # raw 4.5, not 4
     assert score(16) == 9          # raw 8.5, not 8

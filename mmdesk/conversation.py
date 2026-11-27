@@ -87,7 +87,7 @@ def run(agents: list[Agent], rounds: int, topology: str = "ring",
             peer_mean = sum(agents[j].value for j in peers) / len(peers)
             pull = agent.trust * (1 - agent.conviction) * (peer_mean - agent.value)
             new_values.append(max(-1.0, min(1.0, agent.value + pull)))
-        for agent, value in zip(agents, new_values):
+        for agent, value in zip(agents, new_values, strict=True):
             agent.value = value
             agent.path.append(value)
 

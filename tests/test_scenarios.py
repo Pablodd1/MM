@@ -8,8 +8,8 @@ from mmdesk.scenarios import DISCLAIMER, STANCES, Facts, run
 
 
 def facts(**over) -> Facts:
-    base = dict(ticker="NVDA", price=150.0, score_10=8.0, trend=2, momentum=0.05,
-                volatility=0.35, drawdown=-0.08, range_pos=0.75)
+    base = {"ticker": "NVDA", "price": 150.0, "score_10": 8.0, "trend": 2, "momentum": 0.05,
+                "volatility": 0.35, "drawdown": -0.08, "range_pos": 0.75}
     base.update(over)
     return Facts(**base)
 
@@ -83,6 +83,7 @@ def test_high_volatility_alone_makes_the_risk_manager_trim():
 
 def test_scenario_endpoint_shape(monkeypatch):
     from fastapi.testclient import TestClient
+
     from mmdesk import service
     from mmdesk.standard import Bars
 

@@ -126,7 +126,7 @@ def reward_risk_score(rr: float) -> int:
 
 def trend_quality_score(trend: int) -> int:
     """-3..+3 mapped to 1..10; a broken trend is not a bargain."""
-    return max(1, min(10, int(round((trend + 3) / 6 * 9 + 1))))
+    return max(1, min(10, round((trend + 3) / 6 * 9 + 1)))
 
 
 def event_risk_score(days: int | None) -> int:

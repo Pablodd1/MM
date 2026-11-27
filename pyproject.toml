@@ -12,9 +12,34 @@ dependencies = [
     "python-multipart>=0.0.12",
     "yfinance>=0.2.50",
     "numpy>=1.26",
+    "uvicorn>=0.32",
 ]
 
 # Vercel's FastAPI preset loads the ASGI app from this entrypoint. Declared explicitly rather
 # than relying on filename detection, because a wrong guess here is a silent empty deployment.
 [tool.vercel]
 entrypoint = "asgi:app"
+
+[tool.pytest.ini_options]
+# `pytest` on its own must work from a fresh clone. Without this the package is only importable
+# when the repository root happens to be on sys.path.
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["legacy", ".venv", "trainenv"]
+
+[tool.ruff.lint]
+# Correctness and obvious traps, not style for its own sake.
+select = ["E4", "E7", "E9", "F", "W6", "I", "B", "UP", "C4", "SIM", "RUF", "BLE"]
+ignore = [
+    "SIM108",   # the ternary is not always clearer than the assignment it replaces
+    "UP017",    # `UTC` needs Python 3.11+ and matches the surrounding `timezone.utc`
+    "RUF012",   # module-level mutable defaults are the process state these modules manage
+    "RUF001",   # prose contains typographic quotes and dashes on purpose
+    "RUF002",
+    "RUF003",
+    "RUF005",   # `list(a) + list(b)` reads as what it is: two sequences joined
+]

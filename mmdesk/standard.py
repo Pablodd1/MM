@@ -7,9 +7,9 @@ through to the output.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from statistics import mean, median, pstdev
-from typing import Sequence
 
 
 @dataclass

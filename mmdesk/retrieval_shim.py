@@ -28,7 +28,7 @@ from . import tenants as tenant_mod  # noqa: E402
 
 log = logging.getLogger("mmdesk.retrieval")
 
-_cache: dict[str, tuple[tuple[int, int], "_Index | None"]] = {}
+_cache: dict[str, tuple[tuple[int, int], _Index | None]] = {}
 _unreadable: dict[str, str] = {}
 
 

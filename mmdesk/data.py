@@ -26,7 +26,7 @@ REQUEST_TIMEOUT_S = 10
 # One cache per process for the default provider. A new Grounder used to be built for every
 # request, each with its own empty cache, so the TTL never hit and the same bars were downloaded
 # again for the analysis, the crowd and the second opinion of one question.
-_SHARED_CACHE: dict[str, tuple[float, "Grounding"]] = {}
+_SHARED_CACHE: dict[str, tuple[float, Grounding]] = {}
 _SHARED_LOCK = threading.Lock()
 
 
@@ -96,7 +96,7 @@ class YFinanceProvider:
             rows.append((str(index.date()), open_ or close, high or close, low or close, close))
         if len(rows) < 2:
             raise RuntimeError(f"only {len(rows)} usable daily bars for {ticker}")
-        dates, opens, highs, lows, closes = (list(column) for column in zip(*rows))
+        dates, opens, highs, lows, closes = (list(column) for column in zip(*rows, strict=True))
         return (
             Bars(
                 close=closes,

@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from retrieval import Corpus, tokens  # noqa: E402
+from retrieval import Corpus  # noqa: E402
 
 GOLDEN = Path(__file__).parent / "retrieval_golden.jsonl"
 REPORT = ROOT / "docs" / "RETRIEVAL-CALIBRATION.md"
@@ -91,7 +91,7 @@ def main() -> int:
         for threshold in (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20):
             r = evaluate(corpus, golden, threshold, gate)
             results.append(r)
-            print(f"{threshold:5.0f} {str(gate):>5} {r['hit1']:6.2f} {r['hit5']:6.2f} "
+            print(f"{threshold:5.0f} {gate!s:>5} {r['hit1']:6.2f} {r['hit5']:6.2f} "
                   f"{r['answerable_served']:11.2f} {r['negative_refused']:12.2f}")
             # Choose on the honest objective: refuse what we cannot answer, without
             # silencing questions the corpus does answer.
@@ -102,8 +102,6 @@ def main() -> int:
                 best = (score, r)
 
     best_row = best[1]
-    chosen = next(r for r in results
-                  if r["threshold"] == 4 and r["gate"] is True)
     detail = evaluate(corpus, golden, best_row["threshold"], best_row["gate"])
     items = {g["id"]: g for g in golden}
 
@@ -163,8 +161,8 @@ def main() -> int:
         "",
         "## What the app now does",
         "",
-        f"- Refuses when the question's **rarest content word never occurs anywhere in the corpus** "
-        f"(the vocabulary gate) — a claim that can be checked against the index rather than felt.",
+        "- Refuses when the question's **rarest content word never occurs anywhere in the corpus** "
+        "(the vocabulary gate) — a claim that can be checked against the index rather than felt.",
         f"- On the golden set that refuses **{detail['no_answer_refused']:.0%} of the never-discussed topics** "
         f"while still serving **{detail['answerable_served']:.0%} of answerable questions**. The "
         f"{detail['mentioned_served']:.0%} of `mentioned_only` items that are served are correct to serve: "
@@ -177,7 +175,7 @@ def main() -> int:
         f"- Keeps serving passages above a **calibrated score floor of {best_row['threshold']:.0f}** when the "
         "gate passes, and labels them as *closest keyword matches, relevance not verified* rather "
         "than as his position.",
-        f"- Reports `min_score` in `/health` so a reviewer can see what is being applied.",
+        "- Reports `min_score` in `/health` so a reviewer can see what is being applied.",
         "",
         "### Per-question result at the shipped setting",
         "",

@@ -13,13 +13,12 @@ import threading
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-
 from conftest import write_index
+from fastapi.testclient import TestClient
 from sample_corpus import PASSAGES, UNSPOKEN, VIDEOS
 
-from retrieval import Corpus, tokens
 from mmdesk import persona, retrieval_shim, service, tenants
+from retrieval import Corpus, tokens
 
 ROOT = Path(__file__).resolve().parent.parent
 GOLDEN = ROOT / "eval" / "retrieval_golden.jsonl"
@@ -305,7 +304,8 @@ def real_corpus():
 
 
 def _golden():
-    return [json.loads(l) for l in GOLDEN.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = GOLDEN.read_text(encoding="utf-8").splitlines()
+    return [json.loads(line) for line in lines if line.strip()]
 
 
 def test_every_golden_no_answer_item_is_refused(real_corpus):

@@ -8,6 +8,7 @@ first, or call `enable_cuda_dlls()` before constructing a GPU model.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import site
 import sys
@@ -19,14 +20,11 @@ MARKER = "_MMDESK_CUDA_DLLS"
 def cuda_bin_dirs() -> list[Path]:
     dirs: list[Path] = []
     roots: list[str] = []
-    try:
+    # Some embedded interpreters have no site.py.
+    with contextlib.suppress(Exception):
         roots += site.getsitepackages()
-    except Exception:  # noqa: BLE001 - some embedded interpreters have no site.py
-        pass
-    try:
+    with contextlib.suppress(Exception):
         roots.append(site.getusersitepackages())
-    except Exception:  # noqa: BLE001
-        pass
     for base in roots:
         nv = Path(base) / "nvidia"
         if nv.is_dir():
@@ -44,10 +42,8 @@ def enable_cuda_dlls() -> list[Path]:
     os.environ["PATH"] = os.pathsep.join(str(d) for d in dirs) + os.pathsep + os.environ.get("PATH", "")
     if hasattr(os, "add_dll_directory"):
         for d in dirs:
-            try:
+            with contextlib.suppress(OSError):
                 os.add_dll_directory(str(d))
-            except OSError:
-                pass
     os.environ[MARKER] = "1"
     return dirs
 

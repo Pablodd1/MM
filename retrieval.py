@@ -11,6 +11,7 @@ question and a passage are always tokenised the same way.
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 import re
@@ -28,13 +29,19 @@ INDEX = ROOT / "corpus" / "passages.jsonl"
 DEFAULT_MIN_SCORE = 8.0
 
 WORD_RE = re.compile(r"[a-z0-9$][a-z0-9$.\-]{1,24}")
-STOP = set("""a an the and or but if then than that this these those i you he she it we they
-me him her us them my your his its our their is are was were be been being do does did
-doing have has had having will would can could should shall may might must of in on at
-to for with by from as about into over under again further once here there when where why
-how all any both each few more most other some such no nor not only own same so too very
-s t just don now know like get got going want well right okay ok yeah see think say said
-what about""".split())
+STOP = {
+    "a", "an", "the", "and", "or", "but", "if", "then", "than", "that", "this", "these",
+    "those", "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them",
+    "my", "your", "his", "its", "our", "their", "is", "are", "was", "were", "be", "been",
+    "being", "do", "does", "did", "doing", "have", "has", "had", "having", "will", "would",
+    "can", "could", "should", "shall", "may", "might", "must", "of", "in", "on", "at", "to",
+    "for", "with", "by", "from", "as", "about", "into", "over", "under", "again", "further",
+    "once", "here", "there", "when", "where", "why", "how", "all", "any", "both", "each",
+    "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own",
+    "same", "so", "too", "very", "s", "t", "just", "don", "now", "know", "like", "get",
+    "got", "going", "want", "well", "right", "okay", "ok", "yeah", "see", "think", "say",
+    "said", "what",
+}
 
 
 def tokens(text: str) -> list[str]:
@@ -141,7 +148,7 @@ class Corpus:
             self.last_refusal = f"vocabulary_absent:{topic}"
             return []
         q_tf = Counter(q_terms)
-        q_bg = set(zip(q_terms, q_terms[1:]))
+        q_bg = set(itertools.pairwise(q_terms))
         k1, b = 1.5, 0.75
         scored: list[tuple[float, dict]] = []
         for row in self.rows:
@@ -157,7 +164,7 @@ class Corpus:
                 # more likely to be about them. Measured +0.09 hit@1 on the golden set; the
                 # heavier boosts tested worse (eval/tune_ranking.py).
                 text_terms = row["text"].lower().split()
-                row_bg = set(zip(text_terms, text_terms[1:]))
+                row_bg = set(itertools.pairwise(text_terms))
                 s *= 1 + 0.5 * len(q_bg & row_bg) / len(q_bg)
             if s > 0:
                 scored.append((s, row))

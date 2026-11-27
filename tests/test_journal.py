@@ -16,9 +16,9 @@ import time
 from datetime import date, timedelta
 
 import pytest
+from conftest import StubGrounder
 from fastapi.testclient import TestClient
 
-from conftest import StubGrounder
 from mmdesk import service
 from mmdesk.journal import Journal, summary
 from mmdesk.standard import Bars
@@ -50,10 +50,10 @@ def _bars(start: date, closes, opens=None, highs=None, lows=None):
     """OHLC rows; an unspecified open/high/low is the close."""
     closes = [float(c) for c in closes]
     opens = [float(o) for o in (opens or closes)]
-    highs = [float(h) for h in (highs or [max(o, c) for o, c in zip(opens, closes)])]
-    lows = [float(low) for low in (lows or [min(o, c) for o, c in zip(opens, closes)])]
+    highs = [float(h) for h in (highs or [max(o, c) for o, c in zip(opens, closes, strict=True)])]
+    lows = [float(low) for low in (lows or [min(o, c) for o, c in zip(opens, closes, strict=True)])]
     return [[(start + i * DAY).isoformat(), o, h, low, c]
-            for i, (o, h, low, c) in enumerate(zip(opens, highs, lows, closes))]
+            for i, (o, h, low, c) in enumerate(zip(opens, highs, lows, closes, strict=True))]
 
 
 # ---------------------------------------------------------------- storage

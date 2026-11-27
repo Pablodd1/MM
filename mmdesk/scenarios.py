@@ -15,7 +15,7 @@ check. It is not a forecast, and the API says so in the payload, not just in the
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 STANCES = ("add", "hold", "trim", "pass")
 DISCLAIMER = (
@@ -134,8 +134,8 @@ PERSONAS = (_value, _momentum, _risk, _cash, _growth, _contrarian)
 def run(facts: Facts) -> dict:
     """Every persona reads the same facts; the disagreements are the output."""
     views = [fn(facts) for fn in PERSONAS]
-    counts = {s: 0 for s in STANCES}
-    weight = {s: 0.0 for s in STANCES}
+    counts = dict.fromkeys(STANCES, 0)
+    weight = dict.fromkeys(STANCES, 0.0)
     for v in views:
         counts[v.stance] += 1
         weight[v.stance] += v.conviction

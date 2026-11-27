@@ -74,14 +74,19 @@ def test_the_page_reads_those_fields_by_their_current_names():
 
 def test_the_default_form_is_submittable():
     """`value="50000" min="1" step="1000"` is a step mismatch, so the browser refused to submit
-    the page's own defaults. A number input's valid values are `min + k * step`."""
+    page is a step mismatch, so the browser refused to submit its own defaults. A number input's
+    valid values are `min + k * step`."""
+
+    def attribute(attrs, name):
+        found = re.search(name + r'="([^"]*)"', attrs)
+        return found.group(1) if found else None
+
     for attrs in re.findall(r"<input\b[^>]*type=\"number\"[^>]*>", PAGE):
-        get = lambda name: re.search(name + r'="([^"]*)"', attrs)
-        value, minimum, step = get("value"), get("min"), get("step")
+        value, minimum, step = (attribute(attrs, name) for name in ("value", "min", "step"))
         if not value or not minimum:
             continue
-        increment = 1.0 if not step or step.group(1) == "any" else float(step.group(1))
-        offset = float(value.group(1)) - float(minimum.group(1))
+        increment = 1.0 if not step or step == "any" else float(step)
+        offset = float(value) - float(minimum)
         assert offset % increment == 0 or abs(offset % increment - increment) < 1e-9, attrs
 
 

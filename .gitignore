@@ -2,38 +2,32 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
 
-# Local data — never committed
-audio/
-transcripts/
-corpus/audio/
-runtime/
-card.json
-mentions-*.csv
-catalog-*.json
-*.db
-
-# Transcripts are derived from third-party video: keep them local.
-*.log
-gpu-ready.log
-warm*.log
-
-# Secrets
+# Secrets — only ever in the host's environment
 .env
 .env.*
 
-# Media scratch
-voice*.wav
-err*.txt
-
-# Tenant material is local. A public repo is not the place for someone else's words.
-corpus/
-.vercel
-
-# quotes him at length; local training data only
-corpus/decision-episodes.jsonl
-
-# generated training data and adapters
+# Local state: the tenant registry, journals, training sets and adapters
 data/
 models/
 trainenv/
+runtime/
+*.db
+.vercel/
+
+# Tenant material and source media are not published. A public repo is not the place for
+# someone else's words, and an index of transcripts is those words.
+corpus/
+audio/
+transcripts/
+
+# Scratch
+*.log
+voice*.wav
+err*.txt
+card.json
+selftest*.json
+stage*.json
+catalog-*.json
+mentions-*.csv

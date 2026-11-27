@@ -11,10 +11,10 @@ import sys
 import httpx
 import pandas as pd
 import pytest
+from conftest import StubGrounder
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
-from conftest import StubGrounder
 from mmdesk import data, opinion, service, tenants, voice
 from mmdesk.data import Grounder, Grounding, YFinanceProvider
 from mmdesk.llm import LLMConfig
@@ -112,7 +112,7 @@ def test_invalid_input_is_a_422_never_a_500(client, payload):
 
 def test_non_finite_numbers_are_refused(client):
     for field in ("account_equity", "risk_pct", "support", "target", "cash_pct"):
-        body = '{"ticker": "MSFT", "%s": 1e999}' % field      # valid JSON, parses to infinity
+        body = f'{{"ticker": "MSFT", "{field}": 1e999}}'      # valid JSON, parses to infinity
         r = client.post("/api/analyze", content=body,
                         headers={"Content-Type": "application/json"})
         assert r.status_code == 422, field

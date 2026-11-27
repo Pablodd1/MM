@@ -9,11 +9,12 @@ Run: .venv/Scripts/python.exe eval/tune_ranking.py
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
+import sys
 from collections import Counter
 from pathlib import Path
-import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -33,8 +34,8 @@ class Scorer:
         # precompute bigram sets once — the sweep scores the same rows repeatedly
         self.rows = []
         for row in corpus.rows:
-            terms = [t for t in row["text"].lower().split()]
-            self.rows.append((row, set(zip(terms, terms[1:]))))
+            terms = list(row["text"].lower().split())
+            self.rows.append((row, set(itertools.pairwise(terms))))
 
     def rank(self, query: str, k: int = 5, k1: float = 1.5, b: float = 0.75,
              coverage_power: float = 0.0, phrase_bonus: float = 0.0,
@@ -71,7 +72,8 @@ class Scorer:
 
 
 def main() -> int:
-    items = [json.loads(l) for l in GOLDEN.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = GOLDEN.read_text(encoding="utf-8").splitlines()
+    items = [json.loads(line) for line in lines if line.strip()]
     positives = [i for i in items
                  if i["label"] == "answerable" and i.get("acceptable_videos")]
     corpus = Corpus()
@@ -81,17 +83,17 @@ def main() -> int:
     variants = []
     for k1 in (0.9, 1.2, 1.5, 2.0):
         for b in (0.4, 0.6, 0.75, 0.9):
-            variants.append((f"k1={k1} b={b}", dict(k1=k1, b=b)))
+            variants.append((f"k1={k1} b={b}", {"k1": k1, "b": b}))
     for cov in (0.5, 1.0, 1.5, 2.5):
-        variants.append((f"k1=1.5 b=0.75 cov^{cov}", dict(coverage_power=cov)))
+        variants.append((f"k1=1.5 b=0.75 cov^{cov}", {"coverage_power": cov}))
     for ph in (0.5, 1.0, 2.0):
-        variants.append((f"k1=1.5 b=0.75 phrase+{ph}", dict(phrase_bonus=ph)))
+        variants.append((f"k1=1.5 b=0.75 phrase+{ph}", {"phrase_bonus": ph}))
     for tb in (0.3, 0.8):
-        variants.append((f"k1=1.5 b=0.75 title+{tb}", dict(title_bonus=tb)))
-    variants.append(("cov^1.5 phrase+1.0", dict(coverage_power=1.5, phrase_bonus=1.0)))
-    variants.append(("cov^2.5 phrase+1.0", dict(coverage_power=2.5, phrase_bonus=1.0)))
+        variants.append((f"k1=1.5 b=0.75 title+{tb}", {"title_bonus": tb}))
+    variants.append(("cov^1.5 phrase+1.0", {"coverage_power": 1.5, "phrase_bonus": 1.0}))
+    variants.append(("cov^2.5 phrase+1.0", {"coverage_power": 2.5, "phrase_bonus": 1.0}))
     variants.append(("cov^1.5 phrase+1.0 title+0.3",
-                     dict(coverage_power=1.5, phrase_bonus=1.0, title_bonus=0.3)))
+                     {"coverage_power": 1.5, "phrase_bonus": 1.0, "title_bonus": 0.3}))
 
     results = []
     for name, kwargs in variants:

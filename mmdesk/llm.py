@@ -75,7 +75,7 @@ class LLMConfig:
     problem: str = ""     # why this layer cannot call a model, when it cannot
 
     @classmethod
-    def from_env(cls) -> "LLMConfig":
+    def from_env(cls) -> LLMConfig:
         """Any OpenAI-compatible endpoint. MMDESK_LLM_* wins; DEEPSEEK_* is kept so an
         existing deployment does not break."""
         key, origin = _read_key()
@@ -123,7 +123,7 @@ class LLMConfig:
             names = [m.get("id", "") for m in resp.json().get("data", [])]
             grok = sorted((n for n in names if n.startswith("grok-")), reverse=True)
             return grok[0] if grok else self.model
-        except Exception:  # noqa: BLE001 - discovery is a convenience, never a failure
+        except Exception:
             log.warning("model discovery failed for %s", self.provider, exc_info=True)
             return self.model
 

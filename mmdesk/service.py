@@ -43,8 +43,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 from . import conversation as conversation_mod
 from . import opinion as opinion_mod
 from . import persona as persona_mod
-from . import rubric
-from . import rules
+from . import rubric, rules
 from . import scenarios as scenario_mod
 from . import tenants as tenant_mod
 from . import voice as voice_mod
@@ -53,8 +52,14 @@ from .data import Grounder, intraday_supported
 from .decision import build_decision_card
 from .journal import Journal, summary
 from .llm import LLMConfig, narrate, template_narrative
-from .retrieval_shim import (ambiguous, corpus_available, corpus_coverage, passage_count,
-                             refusal_reason, search)
+from .retrieval_shim import (
+    ambiguous,
+    corpus_available,
+    corpus_coverage,
+    passage_count,
+    refusal_reason,
+    search,
+)
 from .rules import Account, Setup
 from .standard import atr, range_position, realised_vol, standard_lens, trend_score
 
@@ -285,9 +290,9 @@ class _OrderedBands(BaseModel):
     @model_validator(mode="after")
     def _bands_ordered(self):
         """Reject inverted fundamental bands at the edge, not with a 500 from inside the rubric."""
-        if self.green_line is not None and self.red_line is not None:
-            if self.red_line <= self.green_line:
-                raise ValueError("red_line (too expensive) must sit above green_line (fair value)")
+        if (self.green_line is not None and self.red_line is not None
+                and self.red_line <= self.green_line):
+            raise ValueError("red_line (too expensive) must sit above green_line (fair value)")
         return self
 
 
@@ -544,7 +549,7 @@ def _build_response(request: AnalyzeRequest, request_id: str,
     try:
         tenant_mod.record_decision(tenant.id, data.get("journal_id") or request_id,
                                    request.ticker.upper(), data.get("verdict", ""), data)
-    except Exception:  # noqa: BLE001 - audit write must not break the card
+    except Exception:
         log.warning("decision audit write failed", exc_info=True)
         data.setdefault("observability", {})["audit_error"] = "the decision could not be recorded"
 
@@ -655,7 +660,7 @@ def voice(
             ) from exc
         except ValueError as exc:
             raise HTTPException(422, detail={"error": "bad_audio", "note": str(exc)}) from exc
-        except Exception as exc:  # noqa: BLE001 - a model crash is not the caller's fault
+        except Exception as exc:
             log.warning("transcription failed", exc_info=True)
             raise HTTPException(502, detail={"error": "voice_failed",
                                              "note": "speech-to-text raised an error"}) from exc
@@ -718,7 +723,7 @@ def _speak_payload(text: str) -> tuple[str | None, str]:
     try:
         wav = voice_mod.speak(text)
         mp3 = voice_mod.to_mp3(wav)
-    except Exception:  # noqa: BLE001 - losing the audio must not lose the card
+    except Exception:
         log.warning("speech synthesis failed", exc_info=True)
         return None, "audio/wav"
     if mp3:
@@ -750,8 +755,8 @@ def voice_selftest(http_request: Request) -> JSONResponse:
             transcript = voice_mod.transcribe(clip)
             stt_ms = int((time.perf_counter() - t0) * 1000)
         except voice_mod.VoiceUnavailable as exc:
-            raise HTTPException(501, detail={"error": "voice_not_available", "note": str(exc)})
-        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(501, detail={"error": "voice_not_available", "note": str(exc)}) from exc
+        except Exception as exc:
             log.warning("voice selftest failed", exc_info=True)
             raise HTTPException(502, detail={"error": "voice_failed"}) from exc
         routed = voice_mod.route(transcript)
@@ -978,7 +983,7 @@ def lens_quote(request: LensRequest, http_request: Request) -> dict[str, Any]:
 @app.post("/api/chart")
 def chart_upload(
     http_request: Request,
-    file: UploadFile | None = File(None),
+    file: UploadFile | None = File(None),  # noqa: B008 - FastAPI reads the default to make the part optional
     ticker: str = Form(""),
     support: float | None = Form(None),
     target: float | None = Form(None),
@@ -1109,9 +1114,8 @@ def adapter_activate(tenant_id: str, http_request: Request,
     """Promote a trained adapter only if its own recorded evaluation clears the bar."""
     _require_admin(http_request)
     token = os.environ.get("MMDESK_ADMIN_TOKEN", "")
-    if force:
-        if not token or not _admin_token_ok(http_request, token):
-            raise HTTPException(403, detail={"error": "force_requires_admin_token"})
+    if force and (not token or not _admin_token_ok(http_request, token)):
+        raise HTTPException(403, detail={"error": "force_requires_admin_token"})
     try:
         adapter = tenant_mod.activate_adapter(tenant_id, require_gate=not force)
     except KeyError as exc:

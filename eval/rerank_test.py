@@ -31,14 +31,15 @@ def embed(text: str, model: str = "nomic-embed-text", timeout: int = 60) -> list
 
 
 def cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
     return dot / (na * nb) if na and nb else 0.0
 
 
 def main() -> int:
-    items = [json.loads(l) for l in GOLDEN.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = GOLDEN.read_text(encoding="utf-8").splitlines()
+    items = [json.loads(line) for line in lines if line.strip()]
     positives = [i for i in items if i["label"] == "answerable" and i.get("acceptable_videos")]
     corpus = Corpus()
     print(f"{corpus.n} passages · {len(positives)} questions\n")

@@ -15,7 +15,6 @@ from mmdesk.retrieval_shim import corpus_available
 from mmdesk.rules import Account, Setup
 from mmdesk.standard import Bars, atr, momentum, range_position, sma, standard_lens, trend_score
 
-
 # ---------- rule engine ----------
 
 def test_score_is_mean_of_components_clamped():
@@ -354,8 +353,9 @@ def test_an_unrecognised_key_is_not_sent_anywhere(monkeypatch):
 # ---------- review findings: journal honesty flags ----------
 
 def test_journal_records_basis_and_sparsity(tmp_path):
-    from mmdesk.journal import Journal
     from datetime import date, timedelta
+
+    from mmdesk.journal import Journal
     j = Journal(tmp_path / "j.jsonl")
     j.append({"instrument": "AAA", "created_at": "2026-01-02T00:00:00+00:00",
               "risk": {"invalidation": 90, "first_target": 130},
@@ -397,6 +397,7 @@ def test_a_short_spike_inflates_20d_more_than_60d():
 # ---------------------------------------------------------------- chart input
 def test_chart_without_levels_is_refused_with_a_reason():
     from fastapi.testclient import TestClient
+
     from mmdesk import service
 
     r = TestClient(service.app).post("/api/chart", files={"file": ("c.png", b"x", "image/png")},
@@ -409,6 +410,7 @@ def test_chart_without_levels_is_refused_with_a_reason():
 
 def test_chart_with_typed_levels_runs_the_analysis(monkeypatch):
     from fastapi.testclient import TestClient
+
     from mmdesk import service
 
     def fake_build(req, rid, tenant=None, **kwargs):
@@ -432,6 +434,7 @@ def test_chart_with_typed_levels_runs_the_analysis(monkeypatch):
 def test_template_narrative_renders_without_a_model(monkeypatch):
     """A visitor sees a narrative on the card even with no model key and no cloud opt-in."""
     from fastapi.testclient import TestClient
+
     from mmdesk import service
     from mmdesk.standard import Bars
 

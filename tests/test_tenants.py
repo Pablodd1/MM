@@ -22,11 +22,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import write_index
-from sample_corpus import PASSAGES
-
-from retrieval import tokens
 from mmdesk import opinion, retrieval_shim, service, tenants
+from retrieval import tokens
 
 ROOT = Path(__file__).resolve().parent.parent
 REMOTE = {"client": ("203.0.113.9", 50000)}       # a caller that is not on the host
@@ -235,7 +232,7 @@ def test_admin_routes_are_loopback_or_token(monkeypatch, tmp_path):
                          headers={"X-Admin-Token": "operator-token"}).status_code == 200
     assert stranger.post("/api/tenants", json=body,
                          headers={"X-Admin-Token": "operator-token"}).status_code == 409
-    assert stranger.post(f"/api/tenants/acme/adapter", json=CANDIDATE).status_code == 401
+    assert stranger.post("/api/tenants/acme/adapter", json=CANDIDATE).status_code == 401
 
 
 def test_tenant_roster_is_admin_only_but_a_known_id_is_public(tmp_path):

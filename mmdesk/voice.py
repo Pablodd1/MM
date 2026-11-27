@@ -79,7 +79,7 @@ def _get_whisper():
 
                 _whisper = WhisperModel(STT_MODEL, device=STT_DEVICE,
                                         compute_type=STT_COMPUTE)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 raise VoiceUnavailable(f"speech-to-text unavailable: {exc}") from exc
     return _whisper
 
@@ -134,7 +134,7 @@ def _get_kokoro():
                 from kokoro_onnx import Kokoro
 
                 _kokoro = Kokoro(str(KOKORO_MODEL), str(KOKORO_VOICES))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 raise VoiceUnavailable(f"text-to-speech unavailable: {exc}") from exc
     return _kokoro
 

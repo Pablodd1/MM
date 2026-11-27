@@ -18,13 +18,13 @@ Three rules this module exists to enforce:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import re
 import sqlite3
 import tempfile
-import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -153,10 +153,9 @@ def _connect() -> sqlite3.Connection:
         present = {row["name"] for row in conn.execute("PRAGMA table_info(tenants)")}
         for column in _ADDED_COLUMNS:
             if column not in present:
-                try:
+                # Another process may have added it in the meantime.
+                with contextlib.suppress(sqlite3.OperationalError):
                     conn.execute(f"ALTER TABLE tenants ADD COLUMN {column} TEXT")
-                except sqlite3.OperationalError:  # added by another process in the meantime
-                    pass
         conn.commit()
     except Exception:
         conn.close()

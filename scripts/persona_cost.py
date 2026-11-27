@@ -55,7 +55,7 @@ def _token_count(text: str) -> int:
         import tiktoken  # type: ignore
 
         return len(tiktoken.get_encoding("cl100k_base").encode(text))
-    except Exception:
+    except ImportError:
         return int(len(text.split()) * WORD_TO_TOKEN)
 
 
@@ -80,14 +80,14 @@ def main() -> int:
 
     # Local simulation: 6 rule-based styles, no tokens at all.
     print("== shipped now: deterministic styles ==")
-    print(f"6 styles, 2 ms per run, 0 tokens, $0. Every stance is a function of the same facts.")
+    print("6 styles, 2 ms per run, 0 tokens, $0. Every stance is a function of the same facts.")
     print()
 
     print("== a language-model crowd: input tokens (bio + instructions, re-sent every call) ==")
     print(f"{'agents':>7} " + " ".join(f"{d:>9}" for d in days))
     for n in crowds:
         row = []
-        for label, d in days.items():
+        for d in days.values():
             calls = n * 4 * d                      # 1 post + 3 reactions per agent-day
             tokens = calls * context_per_call
             row.append(f"{tokens/1e6:>8.1f}M")
@@ -98,7 +98,7 @@ def main() -> int:
     print(f"{'agents':>7} " + " ".join(f"{d:>9}" for d in days))
     for n in crowds:
         row = []
-        for label, d in days.items():
+        for d in days.values():
             tokens = n * per_agent_day * d
             row.append(f"{tokens/1e6:>8.1f}M")
         print(f"{n:>7} " + " ".join(row))

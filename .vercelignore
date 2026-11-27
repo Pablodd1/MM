@@ -1,16 +1,20 @@
-# Never upload these to Vercel: they are large, local-only, or secret.
-audio/
+# Never upload these to Vercel: they are local state, private material, or not part of the app.
 corpus/
+audio/
 transcripts/
-.venv/
+data/
+models/
+trainenv/
 runtime/
-__pycache__/
-.pytest_cache/
+legacy/
+docs/
 tests/
 eval/
+.venv/
+.github/
+__pycache__/
+.pytest_cache/
 *.log
 *.db
 .env
 .env.*
-selftest*.json
-stage*.json

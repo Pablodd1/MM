@@ -56,7 +56,8 @@ def verbatim_score(quote: str, source: str) -> float:
 
 
 def main() -> int:
-    items = [json.loads(l) for l in GOLDEN.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = GOLDEN.read_text(encoding="utf-8").splitlines()
+    items = [json.loads(line) for line in lines if line.strip()]
     rows = []
     for item in items:
         hits = search(item["question"], k=5)
