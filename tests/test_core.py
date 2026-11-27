@@ -194,6 +194,7 @@ def test_card_requires_grounded_numbers_and_carries_disclaimer():
     assert isinstance(card, Card)
     assert card.lens["score_10"] == 8
     assert card.risk["invalidation"] == 92
+    assert card.attribution is None          # the default tenant carries no one's name
     assert card.disclaimer.startswith("Educational tool")
     assert "not investment advice" in card.to_markdown().lower()
     assert card.confidence["calibration"].startswith("uncalibrated")
@@ -322,10 +323,32 @@ def test_digit_detection_catches_spelled_and_unicode():
 
 
 def test_template_narrative_is_used_without_a_key(monkeypatch):
+    """And it must not try the network: clearing one variable used to leave a key in another,
+    which turned this test into a real, billed call on a developer's machine."""
+    import httpx
+
     from mmdesk.llm import LLMConfig, narrate
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("no model call may be made without a key")
+
+    monkeypatch.setattr(httpx, "post", no_network)
+    monkeypatch.setattr(httpx, "get", no_network)
+    assert LLMConfig.from_env().configured is False
     out = narrate({"verdict": "hold", "lens": {}, "standard_lens": {}, "falsifiers": []}, [])
     assert "template" in out["generated_by"]
+
+
+def test_an_unrecognised_key_is_not_sent_anywhere(monkeypatch):
+    """"sk-" is shared by several vendors. Without a named endpoint the key stays unused."""
+    from mmdesk.llm import LLMConfig
+
+    monkeypatch.setenv("MMDESK_LLM_KEY", "sk-not-a-known-vendor")
+    cfg = LLMConfig.from_env()
+    assert cfg.configured is False
+    assert "MMDESK_LLM_BASE" in cfg.problem
+    monkeypatch.setenv("MMDESK_LLM_BASE", "https://api.example-vendor.test/v1")
+    assert LLMConfig.from_env().configured is True
 
 
 # ---------- review findings: journal honesty flags ----------
@@ -388,10 +411,13 @@ def test_chart_with_typed_levels_runs_the_analysis(monkeypatch):
     from fastapi.testclient import TestClient
     from mmdesk import service
 
-    monkeypatch.setattr(service, "_build_response", lambda req, rid, tenant=None: {
-        "instrument": req.ticker, "verdict": "hold", "risk": {"invalidation": req.support},
-        "observability": {}, "standard_lens": {"price": 100.0}, "lens": {"score_10": 5},
-    })
+    def fake_build(req, rid, tenant=None, **kwargs):
+        return {
+            "instrument": req.ticker, "verdict": "hold", "risk": {"invalidation": req.support},
+            "observability": {}, "standard_lens": {"price": 100.0}, "lens": {"score_10": 5},
+        }
+
+    monkeypatch.setattr(service, "_build_response", fake_build)
     r = TestClient(service.app).post(
         "/api/chart",
         files={"file": ("c.png", b"x", "image/png")},
@@ -403,8 +429,8 @@ def test_chart_with_typed_levels_runs_the_analysis(monkeypatch):
     assert body["chart"]["image_received"] is True
 
 
-def test_template_opinion_is_never_empty(monkeypatch):
-    """A visitor must see an opinion even with no model key and no cloud opt-in."""
+def test_template_narrative_renders_without_a_model(monkeypatch):
+    """A visitor sees a narrative on the card even with no model key and no cloud opt-in."""
     from fastapi.testclient import TestClient
     from mmdesk import service
     from mmdesk.standard import Bars
