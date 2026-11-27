@@ -133,7 +133,7 @@ def _serve(corpus, candidate: list, query: str) -> list[dict]:
     if rerank_mod.enabled() and rerank_mod.installed():
         try:
             scores = rerank_mod.rerank(query, [h.text for h in hits])
-        except Exception:  # noqa: BLE001 - no reranker failure may take a card down
+        except Exception:  # a reranker failure must not take a card down
             log.warning("reranker raised; keeping BM25 order", exc_info=True)
             scores = None
         if scores is not None:
